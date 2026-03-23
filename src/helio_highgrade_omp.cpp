@@ -1,8 +1,7 @@
-// December 02, 2026: helio_highgrade:
-// Use some of the machinery of heliolinc to attempt to high-grade
-// an input data set, for later more efficient processing with the
-// full-scale version of heliolinc. This new version avoids the
-// inefficient vector_insert operations.
+// March 2026: helio_highgrade_omp:
+// OpenMP-parallel version of helio_highgrade. Uses heliolinc_highgrade2_omp,
+// which processes each heliocentric hypothesis on a separate thread and
+// assembles the de-duplicated detection list after the parallel region.
 
 #include "solarsyst_dyn_geo01.h"
 #include "cmath"
@@ -494,7 +493,7 @@ int main(int argc, char *argv[])
    return(1);
   }
   cout << "Read " << trk2det.size() << " data lines from trk2det file " << trk2detfile << "\n";
-  status=heliolinc_highgrade2(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, minobsnum, outdets);
+  status=heliolinc_highgrade2_omp(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, minobsnum, outdets);
   if(status!=0) {
     cerr << "ERROR: heliolinc_highgrade failed with status " << status << "\n";
     return(status);
