@@ -24,6 +24,7 @@
 #include <cassert>
 #include <climits>
 #include <chrono>
+#include <numeric>
 
 #include <omp.h>
 
@@ -1081,9 +1082,9 @@ public:
   int vx;
   int vy;
   int vz;
-  long i1;
-  long i2;
-  point6ix2(int x, int y, int z, int vx, int vy, int vz, long i1, long i2) :x(x), y(y), z(z), vx(vx), vy(vy), vz(vz), i1(i1), i2(i2) {}
+  uint32_t i1;
+  uint32_t i2;
+  point6ix2(int x, int y, int z, int vx, int vy, int vz, uint32_t i1, uint32_t i2) :x(x), y(y), z(z), vx(vx), vy(vy), vz(vz), i1(i1), i2(i2) {}
 };
 
 class lower_point6ix2_x{ // Sort point6ix2's by x
@@ -1155,9 +1156,9 @@ public:
   int x;
   int y;
   int z;
-  long i1;
-  long i2;
-  point3ix2(int x, int y, int z, long i1, long i2) :x(x), y(y), z(z), i1(i1), i2(i2) {}
+  uint32_t i1;
+  uint32_t i2;
+  point3ix2(int x, int y, int z, uint32_t i1, uint32_t i2) :x(x), y(y), z(z), i1(i1), i2(i2) {}
 };
 
 class lower_point3ix2_x{ // Sort point3ix2's by x
@@ -1968,6 +1969,7 @@ void lastroot(const vector <double> &intvec, vector <double> &rootvec, long N);
 int trk2statevec_omp(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 int trk2statevec_omp2(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 vector <long> tracklet_lookup(const vector <longpair> &trk2det, long trknum);
+vector <long> tracklet_lookup(const vector <uint_pair> &clust2det, long clusternum);
 vector <unsigned int> uint_lookup(const vector <uint_pair> &trk2det, unsigned int trknum);
 int tracklet_lookup_ind(const vector <longpair> &trk2det, long trknum, vector <long> &trkdet, vector <long> &trkind);
 point3d earthpos01(const vector <EarthState> &earthpos, double mjd);

@@ -177,10 +177,11 @@
 
 #include "solarsyst_dyn_geo01.h"
 #include "cmath"
+#include <omp.h>
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
+  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf -max_threads N -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -214,6 +215,7 @@ int main(int argc, char *argv[])
   default_clust2detfile = default_sumfile = 1;
   default_mingeoobs = default_minimpactpar = 1;
   default_use_univar = default_max_v_inf = 1;
+  int max_threads = 0; // 0 means use OpenMP default
   ofstream outstream1;
   long i=0;
   long clustct=0;
@@ -502,6 +504,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-max_threads" || string(argv[i]) == "-maxthreads" || string(argv[i]) == "--max_threads" || string(argv[i]) == "--maxthreads") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	max_threads=stoi(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Max threads keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
@@ -670,6 +683,11 @@ int main(int argc, char *argv[])
   cout << "output summary file prefix " << sumfile << "\n";
   cout << "output clust2det file prefix " << clust2detfile << "\n";
   cout << "Output files will be named {prefix}_{N}.txt / {prefix}_{N}.csv per hypothesis\n";
+
+  if(max_threads > 0) {
+    omp_set_num_threads(max_threads);
+    cout << "Setting maximum OpenMP threads to " << max_threads << "\n";
+  }
 
   status=heliolinc_alg_omp_lowmem_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile);
   if(status!=0) {
