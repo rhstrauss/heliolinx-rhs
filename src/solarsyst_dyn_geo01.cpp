@@ -35185,16 +35185,6 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
     return(10);
   } else georadnum = ceil(dgnum)+1;
 
-  // Pre-compute geodist for each statevec and sort by geodist for O(log N) bin selection
-  long svnum = long(allstatevecs.size());
-  vector<pair<double,long>> geodist_idx(svnum);
-  for(i=0; i<svnum; i++) {
-    statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
-    geodist_idx[i].first = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
-    geodist_idx[i].second = i;
-  }
-  sort(geodist_idx.begin(), geodist_idx.end());
-
   georadct = 0;
   while(georadcen<=maxgeodist && georadct<=georadnum) {
     georadct++;
@@ -35203,13 +35193,17 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    // Use binary search on pre-sorted geodist_idx for O(log N) bin selection
     binstatevecs={};
-    {
-      auto lo = lower_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmin, LONG_MIN));
-      auto hi = upper_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmax, LONG_MAX));
-      for(auto it=lo; it!=hi; ++it) {
-        binstatevecs.push_back(allstatevecs[it->second]);
+    for(i=0; i<long(allstatevecs.size()); i++) {
+      // Reverse integerization of the state vector.
+      // This is only possible to a crude approximation, of course.
+      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
+      // Calculate geocentric distance in AU
+      geodist = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
+      if(geodist >= georadmin && geodist <= georadmax) {
+	// This state vector is in the geocentric radius bin we are currently considering.
+	// Add it to binstatevecs.
+	binstatevecs.push_back(allstatevecs[i]);
       }
     }
     if(verbose>=1) cout << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
@@ -36810,17 +36804,6 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
     return(10);
   } else georadnum = ceil(dgnum)+1;
 
-  // Pre-compute geodist for each statevec and sort by geodist for O(log N) bin selection
-  {
-    long svnum = long(allstatevecs.size());
-    vector<pair<double,long>> geodist_idx(svnum);
-    for(i=0; i<svnum; i++) {
-      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
-      geodist_idx[i].first = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
-      geodist_idx[i].second = i;
-    }
-    sort(geodist_idx.begin(), geodist_idx.end());
-
   georadct = 0;
   pointind_mat = {};
   outclust2 = {};
@@ -36831,14 +36814,18 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    // Use binary search on pre-sorted geodist_idx for O(log N) bin selection
     vector <point6ix2> binstatevecs;
     geobin_clusternum=0;
-    {
-      auto lo = lower_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmin, LONG_MIN));
-      auto hi = upper_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmax, LONG_MAX));
-      for(auto it=lo; it!=hi; ++it) {
-        binstatevecs.push_back(allstatevecs[it->second]);
+    for(i=0; i<long(allstatevecs.size()); i++) {
+      // Reverse integerization of the state vector.
+      // This is only possible to a crude approximation, of course.
+      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
+      // Calculate geocentric distance in AU
+      geodist = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
+      if(geodist >= georadmin && geodist <= georadmax) {
+	// This state vector is in the geocentric radius bin we are currently considering.
+	// Add it to binstatevecs.
+	binstatevecs.push_back(allstatevecs[i]);
       }
     }
     if(verbose>=1) cout  << fixed << setprecision(2) << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
@@ -37027,7 +37014,6 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
     // Move on to the next bin in geocentric distance
     cout << "Final analysis of geobin " << georadct << " identified " << geobin_clusternum << " distinct candidate linkages. Current total is " << gridpoint_clusternum << "\n";
   }
-  } // end geodist_idx scope (form_clusters_kd4_lowmem)
   if(verbose>=0) cout << "Across all geobins, identified " << gridpoint_clusternum << " total linkages\n";
 
   // Final loop over all clusters, to remove duplicates
@@ -37499,17 +37485,6 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
     return(10);
   } else georadnum = ceil(dgnum)+1;
 
-  // Pre-compute geodist for each statevec and sort by geodist for O(log N) bin selection
-  {
-    long svnum = long(allstatevecs.size());
-    vector<pair<double,long>> geodist_idx(svnum);
-    for(i=0; i<svnum; i++) {
-      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
-      geodist_idx[i].first = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
-      geodist_idx[i].second = i;
-    }
-    sort(geodist_idx.begin(), geodist_idx.end());
-
   georadct = 0;
   pointind_mat = {};
   outclust2 = {};
@@ -37520,14 +37495,18 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    // Use binary search on pre-sorted geodist_idx for O(log N) bin selection
     vector <point6ix2> binstatevecs;
     geobin_clusternum=0;
-    {
-      auto lo = lower_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmin, LONG_MIN));
-      auto hi = upper_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmax, LONG_MAX));
-      for(auto it=lo; it!=hi; ++it) {
-        binstatevecs.push_back(allstatevecs[it->second]);
+    for(i=0; i<long(allstatevecs.size()); i++) {
+      // Reverse integerization of the state vector.
+      // This is only possible to a crude approximation, of course.
+      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
+      // Calculate geocentric distance in AU
+      geodist = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
+      if(geodist >= georadmin && geodist <= georadmax) {
+	// This state vector is in the geocentric radius bin we are currently considering.
+	// Add it to binstatevecs.
+	binstatevecs.push_back(allstatevecs[i]);
       }
     }
     if(verbose>=1) cout << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
@@ -37733,7 +37712,6 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
     // Move on to the next bin in geocentric distance
     cout << "Final analysis of geobin " << georadct << " identified " << geobin_clusternum << " distinct candidate linkages. Current total is " << gridpoint_clusternum << "\n";
   }
-  } // end geodist_idx scope (form_clusters_RR_lowmem)
   if(verbose>=0) cout << "Across all geobins, identified " << gridpoint_clusternum << " total linkages\n";
 
   // Final loop over all clusters, to remove duplicates
@@ -38200,17 +38178,6 @@ int form_clusters_kdR_lowmem(const vector <point6ix2> &allstatevecs, const vecto
     return(10);
   } else georadnum = ceil(dgnum)+1;
 
-  // Pre-compute geodist for each statevec and sort by geodist for O(log N) bin selection
-  {
-    long svnum = long(allstatevecs.size());
-    vector<pair<double,long>> geodist_idx(svnum);
-    for(i=0; i<svnum; i++) {
-      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
-      geodist_idx[i].first = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
-      geodist_idx[i].second = i;
-    }
-    sort(geodist_idx.begin(), geodist_idx.end());
-
   georadct = 0;
   pointind_mat = {};
   outclust2 = {};
@@ -38221,15 +38188,20 @@ int form_clusters_kdR_lowmem(const vector <point6ix2> &allstatevecs, const vecto
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    // Use binary search on pre-sorted geodist_idx for O(log N) bin selection
     vector <point3ix2> binstatevecs;
+    point3ix2 onestate = point3ix2(0,0,0,0,0);
     geobin_clusternum=0;
-    {
-      auto lo = lower_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmin, LONG_MIN));
-      auto hi = upper_bound(geodist_idx.begin(), geodist_idx.end(), make_pair(georadmax, LONG_MAX));
-      for(auto it=lo; it!=hi; ++it) {
-        long idx = it->second;
-        binstatevecs.push_back(point3ix2(allstatevecs[idx].x, allstatevecs[idx].y, allstatevecs[idx].z, allstatevecs[idx].i1, uint32_t(idx)));
+    for(i=0; i<long(allstatevecs.size()); i++) {
+      // Reverse integerization of the state vector.
+      // This is only possible to a crude approximation, of course.
+      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
+      // Calculate geocentric distance in AU
+      geodist = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
+      if(geodist >= georadmin && geodist <= georadmax) {
+	// This state vector is in the geocentric radius bin we are currently considering.
+	// Add it to binstatevecs.
+	onestate = point3ix2(allstatevecs[i].x, allstatevecs[i].y, allstatevecs[i].z, allstatevecs[i].i1, i);
+	binstatevecs.push_back(onestate);
       }
     }
     if(verbose>=1) cout << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
@@ -38420,7 +38392,6 @@ int form_clusters_kdR_lowmem(const vector <point6ix2> &allstatevecs, const vecto
     // Move on to the next bin in geocentric distance
     cout << "Final analysis of geobin " << georadct << " identified " << geobin_clusternum << " distinct candidate linkages. Current total is " << gridpoint_clusternum << "\n";
   }
-  } // end geodist_idx scope (form_clusters_kdR_lowmem)
   if(verbose>=0) cout << "Across all geobins, identified " << gridpoint_clusternum << " total linkages\n";
 
   // Final loop over all clusters, to remove duplicates
