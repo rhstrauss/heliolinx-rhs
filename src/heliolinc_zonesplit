@@ -1,0 +1,257 @@
+#!/bin/bash
+# heliolinc_zonesplit
+#
+# Drop-in parallel wrapper for heliolinc_lowmem_omp.
+# Splits the sky into RA zones, runs each zone in parallel, and merges
+# the outputs transparently so downstream tools (link_planarity_omp etc.)
+# see a single merged result identical in format to one heliolinc run.
+#
+# Usage:
+#   heliolinc_zonesplit [heliolinc_lowmem_omp args] [zone-split args]
+#
+# Zone-split flags (intercepted, NOT forwarded to heliolinc_lowmem_omp):
+#   -nzones N       Number of RA zones (default: 8)
+#   -maxvel V       Angular velocity ceiling deg/day, used ONLY to compute
+#                   zone overlap = maxvel * window_days (default: 5.0).
+#                   Does not get forwarded to heliolinc_lowmem_omp.
+#   -window_days D  Observation window length in days (default: auto-detected
+#                   from min/max MJD in the -imgs file).
+#   -overlap D      Set zone overlap directly in degrees, overriding
+#                   maxvel * window_days.
+#   -njobs N        Max simultaneous zone processes (default: nzones).
+#
+# All other flags are forwarded verbatim to heliolinc_lowmem_omp.
+# The binary used is: same directory as this script, or override with
+# HELIOLINC_BIN env var.
+#
+# Output:
+#   ${outsum}_0.txt ... ${outsum}_{N_HYP-1}.txt
+#   ${clust2det}_0.csv ... ${clust2det}_{N_HYP-1}.csv
+#   (identical format to a single heliolinc_lowmem_omp run; safe to pass
+#    directly to link_planarity_omp via an lflist)
+#
+# Zone geometry:
+#   width   = 360 / nzones degrees
+#   overlap = maxvel * window_days degrees  (recommended: ≥ maxvel * window)
+#   Zone i covers RA [ i*width - overlap, (i+1)*width + overlap ] mod 360.
+#   Adjacent zones overlap, so an asteroid near a boundary appears in both;
+#   link_planarity_omp / link_purify deduplicate based on shared detections.
+#
+# Example (NEO run, 8 zones, maxvel 5 deg/day over 5 nights):
+#   heliolinc_zonesplit -nzones 8 -maxvel 5.0 \
+#     -imgs outim.txt -pairdets pairdets.csv -tracklets tracklets.csv \
+#     -trk2det trk2det.csv -obspos Earth.csv -heliodist hyp.txt \
+#     -clustrad 2e5 -mingeoobs 0.1 -minimpactpar 0.01 \
+#     -autorun 1 -outsum sum -clust2det c2d
+
+set -euo pipefail
+
+MYDIR="$(cd "$(dirname "$0")" && pwd)"
+HL_BIN="${HELIOLINC_BIN:-${MYDIR}/heliolinc_lowmem_omp}"
+
+# ── defaults ─────────────────────────────────────────────────────────────────
+NZONES=8
+MAXVEL=5.0
+WINDOW_DAYS=""
+OVERLAP_DEG=""
+NJOBS=0          # 0 = all at once
+
+IMGS=""
+OUTSUM=""
+C2D=""
+HYPFILE=""
+PASS_ARGS=()
+
+# ── argument parsing ──────────────────────────────────────────────────────────
+i=1
+while [ $i -le $# ]; do
+  arg="${!i}"
+  i=$((i+1))
+  case "$arg" in
+    -nzones)     NZONES="${!i}";      i=$((i+1)) ;;
+    -maxvel)     MAXVEL="${!i}";      i=$((i+1)) ;;   # NOT forwarded
+    -window_days) WINDOW_DAYS="${!i}"; i=$((i+1)) ;;
+    -overlap)    OVERLAP_DEG="${!i}"; i=$((i+1)) ;;
+    -njobs)      NJOBS="${!i}";       i=$((i+1)) ;;
+    -imgs)
+      IMGS="${!i}"; PASS_ARGS+=("$arg" "${!i}"); i=$((i+1)) ;;
+    -outsum)
+      OUTSUM="${!i}"; i=$((i+1)) ;;    # captured; not forwarded directly
+    -clust2det)
+      C2D="${!i}"; i=$((i+1)) ;;       # captured; not forwarded directly
+    -heliodist)
+      HYPFILE="${!i}"; PASS_ARGS+=("$arg" "${!i}"); i=$((i+1)) ;;
+    *)
+      PASS_ARGS+=("$arg") ;;
+  esac
+done
+
+# ── validate ──────────────────────────────────────────────────────────────────
+if [ -z "$OUTSUM" ] || [ -z "$C2D" ]; then
+  echo "ERROR: -outsum and -clust2det are required" >&2; exit 1
+fi
+if [ -z "$IMGS" ]; then
+  echo "ERROR: -imgs is required" >&2; exit 1
+fi
+if [ ! -x "$HL_BIN" ]; then
+  echo "ERROR: heliolinc_lowmem_omp not found at '$HL_BIN'" >&2
+  echo "       Set HELIOLINC_BIN env var to its path." >&2
+  exit 1
+fi
+
+# ── compute window_days from imgs file ────────────────────────────────────────
+if [ -z "$WINDOW_DAYS" ]; then
+  WINDOW_DAYS=$(awk '!/^#/ && NF>0 {
+    if (NR==1) { mn=$1; mx=$1 }
+    if ($1 < mn) mn=$1
+    if ($1 > mx) mx=$1
+  } END { printf "%.6f", mx - mn }' "$IMGS")
+  echo "Auto-detected window: ${WINDOW_DAYS} days (from $IMGS)"
+fi
+
+# ── compute overlap ───────────────────────────────────────────────────────────
+if [ -z "$OVERLAP_DEG" ]; then
+  OVERLAP_DEG=$(awk -v mv="$MAXVEL" -v wd="$WINDOW_DAYS" \
+    'BEGIN { printf "%.4f", mv * wd }')
+fi
+
+WIDTH=$(awk -v nz="$NZONES" 'BEGIN { printf "%.6f", 360.0 / nz }')
+
+echo "====================================================="
+echo "heliolinc_zonesplit"
+echo "  Zones    : $NZONES × ${WIDTH}° wide"
+echo "  Overlap  : ${OVERLAP_DEG}° (maxvel=${MAXVEL} deg/day × window=${WINDOW_DAYS} days)"
+echo "  Binary   : $HL_BIN"
+echo "  outsum   : $OUTSUM"
+echo "  clust2det: $C2D"
+echo "====================================================="
+
+# ── compute zone RA bounds ────────────────────────────────────────────────────
+# Zone i: [ (i*width - overlap) mod 360, ((i+1)*width + overlap) mod 360 ]
+# When lo > hi the C++ filter treats it as a wrap-around zone (through 0°).
+declare -a ZONE_LO ZONE_HI
+while IFS=' ' read -r z lo hi; do
+  ZONE_LO[$z]=$lo
+  ZONE_HI[$z]=$hi
+done < <(awk -v nz="$NZONES" -v w="$WIDTH" -v ov="$OVERLAP_DEG" 'BEGIN {
+  for (z = 0; z < nz; z++) {
+    lo = ((z * w - ov) % 360 + 360) % 360
+    hi = (((z+1) * w + ov) % 360 + 360) % 360
+    printf "%d %.4f %.4f\n", z, lo, hi
+  }
+}')
+
+# ── temp workspace ────────────────────────────────────────────────────────────
+OUTDIR=$(dirname "$(realpath -m "$OUTSUM")")
+ZONETMP=$(mktemp -d "${OUTDIR}/zonesplit_tmp_XXXXXX")
+trap 'echo "Cleaning up $ZONETMP ..."; rm -rf "$ZONETMP"' EXIT
+
+# ── launch zone jobs ──────────────────────────────────────────────────────────
+declare -a PIDS ZONES_LAUNCHED
+for z in $(seq 0 $((NZONES-1))); do
+  ZDIR="${ZONETMP}/zone${z}"
+  mkdir -p "$ZDIR"
+  lo=${ZONE_LO[$z]}
+  hi=${ZONE_HI[$z]}
+  printf "  Launching zone %d  RA [%.2f, %.2f]\n" "$z" "$lo" "$hi"
+
+  "$HL_BIN" "${PASS_ARGS[@]}" \
+    -outsum  "${ZDIR}/sum" \
+    -clust2det "${ZDIR}/c2d" \
+    -min_RA "$lo" -max_RA "$hi" \
+    >"${ZDIR}/stdout.txt" 2>"${ZDIR}/stderr.txt" &
+  PIDS+=($!)
+  ZONES_LAUNCHED+=($z)
+
+  # Throttle if -njobs set
+  if [ "$NJOBS" -gt 0 ] && [ $(( (z + 1) % NJOBS )) -eq 0 ]; then
+    for pid in "${PIDS[@]}"; do wait "$pid"; done
+    PIDS=()
+  fi
+done
+
+# Wait for remaining jobs; check for failures
+FAILED=0
+for idx in "${!PIDS[@]}"; do
+  pid=${PIDS[$idx]}
+  z=${ZONES_LAUNCHED[$idx]}
+  if ! wait "$pid"; then
+    echo "ERROR: zone $z failed (pid $pid). Stderr:" >&2
+    cat "${ZONETMP}/zone${z}/stderr.txt" >&2
+    FAILED=1
+  fi
+done
+[ "$FAILED" -eq 1 ] && exit 1
+
+echo "All $NZONES zone jobs completed."
+
+# ── discover hypothesis count ─────────────────────────────────────────────────
+if [ -n "$HYPFILE" ]; then
+  N_HYP=$(grep -cv '^#\|^$' "$HYPFILE" || true)
+else
+  N_HYP=$(ls "${ZONETMP}/zone0"/sum_*.txt 2>/dev/null | wc -l)
+fi
+echo "Merging $N_HYP hypothesis files from $NZONES zones ..."
+
+# ── merge per hypothesis ──────────────────────────────────────────────────────
+# For each hypothesis h, concatenate zone outputs with cluster-ID offsets so
+# the merged files look identical to a single heliolinc_lowmem_omp run.
+merge_hypothesis() {
+  local h=$1
+  local out_sum="${OUTSUM}_${h}.txt"
+  local out_c2d="${C2D}_${h}.csv"
+  local offset=0
+  local wrote_header=0
+
+  for z in $(seq 0 $((NZONES-1))); do
+    local zsum="${ZONETMP}/zone${z}/sum_${h}.txt"
+    local zc2d="${ZONETMP}/zone${z}/c2d_${h}.csv"
+    [ -f "$zsum" ] || continue
+
+    if [ "$wrote_header" -eq 0 ]; then
+      head -1 "$zsum"  > "$out_sum"
+      head -1 "$zc2d" > "$out_c2d"
+      wrote_header=1
+    fi
+
+    local n
+    n=$(awk 'NR>1 && !/^#/' "$zsum" | wc -l)
+
+    if [ "$n" -gt 0 ]; then
+      # Renumber clusternum (col 1) in both files
+      awk -F, -v off="$offset" 'NR>1 && !/^#/ { $1=$1+off; print }' \
+        OFS=, "$zsum" >> "$out_sum"
+      awk -F, -v off="$offset" 'NR>1 && !/^#/ { $1=$1+off; print }' \
+        OFS=, "$zc2d" >> "$out_c2d"
+      offset=$((offset + n))
+    fi
+  done
+
+  # If no zone produced any clusters, write header-only files
+  if [ "$wrote_header" -eq 0 ]; then
+    echo "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count" > "$out_sum"
+    echo "#clusternum,detnum" > "$out_c2d"
+  fi
+}
+
+export -f merge_hypothesis
+export ZONETMP OUTSUM C2D NZONES
+
+# Merge with a bounded job pool (16 parallel merges)
+MERGE_JOBS=16
+running=0
+for h in $(seq 0 $((N_HYP-1))); do
+  merge_hypothesis "$h" &
+  running=$((running + 1))
+  if [ "$running" -ge "$MERGE_JOBS" ]; then
+    wait -n 2>/dev/null || wait
+    running=$((running - 1))
+  fi
+done
+wait
+
+echo "====================================================="
+echo "heliolinc_zonesplit done."
+echo "  ${N_HYP} hypothesis files merged from ${NZONES} zones."
+echo "  Outputs: ${OUTSUM}_0.txt ... ${OUTSUM}_$((N_HYP-1)).txt"
+echo "====================================================="

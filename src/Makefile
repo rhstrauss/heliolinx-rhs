@@ -22,10 +22,15 @@ SOURCES = $(LIB_SOURCES) $(PROGRAMS:%=%.cpp)
 .PHONY: all
 all: $(PROGRAMS)
 
+# Shell scripts installed alongside compiled binaries
+SCRIPTS = heliolinc_zonesplit
+
 .PHONY: install
 install: $(PROGRAMS)
 	mkdir -p $(PREFIX)/bin
 	cp -p $(PROGRAMS) $(PREFIX)/bin
+	cp -p $(SCRIPTS) $(PREFIX)/bin
+	chmod +x $(addprefix $(PREFIX)/bin/, $(SCRIPTS))
 
 $(PROGRAMS): %: %.o $(LIB)
 	$(CXX) $< -L. -lheliolinx -fopenmp $(OUTPUT_OPTION)
