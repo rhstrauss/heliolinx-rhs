@@ -533,6 +533,24 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-min_Dec" || string(argv[i]) == "-minDec") {
+      if(i+1 < argc) {
+	config.min_Dec = stod(argv[++i]);
+	i++;
+      } else {
+	cerr << "min_Dec keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-max_Dec" || string(argv[i]) == "-maxDec") {
+      if(i+1 < argc) {
+	config.max_Dec = stod(argv[++i]);
+	i++;
+      } else {
+	cerr << "max_Dec keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;

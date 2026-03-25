@@ -32769,7 +32769,7 @@ int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tra
 }
 
 // trk2statevec_fgfunc: September 05, 2023
-int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA)
+int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA, double min_Dec, double max_Dec)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -32879,6 +32879,11 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
       bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
                                         : (mid_RA >= min_RA || mid_RA <= max_RA);
       if(!in_zone) continue;
+    }
+    // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
+    if(min_Dec > -90.0 || max_Dec < 90.0) {
+      double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
+      if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
     }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
@@ -33012,7 +33017,7 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
 
 // trk2statevec_fgfuncRR: April 26, 2024:
 // Uses Ben Engebreth's heliolincRR algorithm
-int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA)
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA, double min_Dec, double max_Dec)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33126,6 +33131,11 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
       bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
                                         : (mid_RA >= min_RA || mid_RA <= max_RA);
       if(!in_zone) continue;
+    }
+    // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
+    if(min_Dec > -90.0 || max_Dec < 90.0) {
+      double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
+      if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
     }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
@@ -33509,7 +33519,7 @@ int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vec
 
 
 // trk2statevec_univar: September 05, 2023
-int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA)
+int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA, double min_Dec, double max_Dec)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33617,6 +33627,11 @@ int trk2statevec_univar(const vector <hlimage> &image_log, const vector <trackle
       bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
                                         : (mid_RA >= min_RA || mid_RA <= max_RA);
       if(!in_zone) continue;
+    }
+    // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
+    if(min_Dec > -90.0 || max_Dec < 90.0) {
+      double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
+      if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
     }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
@@ -33755,7 +33770,7 @@ int trk2statevec_univar(const vector <hlimage> &image_log, const vector <trackle
 // except that it uses the univeral variable formulation of the Kepler problem,
 // which enables it to handle unbound (aka hyperbolic, aka interstellar) orbits,
 // something trk2statevec_fgfuncRR is not able to do.
-int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA)
+int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA, double min_Dec, double max_Dec)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33868,6 +33883,11 @@ int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <track
       bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
                                         : (mid_RA >= min_RA || mid_RA <= max_RA);
       if(!in_zone) continue;
+    }
+    // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
+    if(min_Dec > -90.0 || max_Dec < 90.0) {
+      double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
+      if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
     }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
@@ -42427,13 +42447,13 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
 
     // --- project tracklets to state vectors ---
     if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
-      thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA);
+      thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     } else if(use_univar == 2) {
-      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA);
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     } else if(use_univar == 3) {
-      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA);
+      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     } else {
-      thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA);
+      thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     }
     if(thread_status==2) {
       cerr << "Fatal error from trk2statevec for hypothesis " << thread_accelct << "\n";

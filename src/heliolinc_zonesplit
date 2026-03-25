@@ -2,12 +2,12 @@
 # heliolinc_zonesplit
 #
 # Drop-in parallel wrapper for heliolinc_lowmem_omp.
-# Splits the sky into RA zones, runs each zone in parallel, and merges
+# Splits the sky into RA × Dec zones, runs each zone in parallel, and merges
 # the outputs transparently so downstream tools (link_planarity_omp etc.)
 # see a single merged result identical in format to one heliolinc run.
 #
 # For each zone this script pre-filters the tracklets and trk2det input
-# files to only the zone's RA range before launching heliolinc_lowmem_omp,
+# files to only the zone's sky patch before launching heliolinc_lowmem_omp,
 # so each zone job loads only its fraction of the data.  pairdets is passed
 # through unchanged because detnum indices in the cluster output must remain
 # valid for downstream tools.
@@ -17,13 +17,16 @@
 #
 # Zone-split flags (intercepted, NOT forwarded to heliolinc_lowmem_omp):
 #   -nzones N       Number of RA zones (default: 8)
+#   -ndec_zones N   Number of Dec zones (default: 1 = no Dec splitting)
 #   -maxvel V       deg/day; used ONLY to compute overlap = maxvel * window_days
 #                   (default: 5.0). Does not get forwarded to heliolinc_lowmem_omp.
 #   -window_days D  Observation window length in days (default: auto-detected
 #                   from min/max MJD in the -imgs file).
-#   -overlap D      Set zone overlap directly in degrees, overriding
+#   -overlap D      Set RA zone overlap directly in degrees, overriding
 #                   maxvel * window_days.
-#   -njobs N        Max simultaneous zone processes (default: nzones).
+#   -dec_overlap D  Set Dec zone overlap directly in degrees (default: same
+#                   as RA overlap).
+#   -njobs N        Max simultaneous zone processes (default: nzones * ndec_zones).
 #
 # All other flags are forwarded verbatim to heliolinc_lowmem_omp.
 # The binary used is: same directory as this script, or override with
@@ -35,15 +38,22 @@
 #   (identical format to a single heliolinc_lowmem_omp run; safe to pass
 #    directly to link_planarity_omp via an lflist)
 #
-# Zone geometry:
+# Zone geometry (RA):
 #   width   = 360 / nzones degrees
 #   overlap = maxvel * window_days degrees  (recommended: ≥ maxvel * window)
 #   Zone i covers RA [ i*width - overlap, (i+1)*width + overlap ] mod 360.
-#   Adjacent zones overlap, so an asteroid near a boundary appears in both;
-#   link_planarity_omp / link_purify deduplicate based on shared detections.
 #
-# Example (NEO run, 8 zones, maxvel 5 deg/day over 5 nights):
-#   heliolinc_zonesplit -nzones 8 -maxvel 5.0 \
+# Zone geometry (Dec):
+#   height  = 180 / ndec_zones degrees
+#   overlap = same as RA overlap by default
+#   Zone j covers Dec [ j*height - 90 - overlap, (j+1)*height - 90 + overlap ]
+#   (clamped to [-90, 90] in practice since tracklets never exceed that range)
+#
+# Adjacent zones overlap so a tracklet near a boundary appears in both;
+# link_planarity_omp / link_purify deduplicate based on shared detections.
+#
+# Example (NEO run, 8 RA × 2 Dec zones, maxvel 5 deg/day over 5 nights):
+#   heliolinc_zonesplit -nzones 8 -ndec_zones 2 -maxvel 5.0 \
 #     -imgs outim.txt -pairdets pairdets.csv -tracklets tracklets.csv \
 #     -trk2det trk2det.csv -obspos Earth.csv -heliodist hyp.txt \
 #     -clustrad 2e5 -mingeoobs 0.1 -minimpactpar 0.01 \
@@ -56,9 +66,11 @@ HL_BIN="${HELIOLINC_BIN:-${MYDIR}/heliolinc_lowmem_omp}"
 
 # ── defaults ─────────────────────────────────────────────────────────────────
 NZONES=8
+NDEC_ZONES=1
 MAXVEL=5.0
 WINDOW_DAYS=""
 OVERLAP_DEG=""
+DEC_OVERLAP_DEG=""
 NJOBS=0          # 0 = all at once
 
 IMGS=""
@@ -75,11 +87,13 @@ while [ $i -le $# ]; do
   arg="${!i}"
   i=$((i+1))
   case "$arg" in
-    -nzones)      NZONES="${!i}";      i=$((i+1)) ;;
-    -maxvel)      MAXVEL="${!i}";      i=$((i+1)) ;;   # NOT forwarded
-    -window_days) WINDOW_DAYS="${!i}"; i=$((i+1)) ;;
-    -overlap)     OVERLAP_DEG="${!i}"; i=$((i+1)) ;;
-    -njobs)       NJOBS="${!i}";       i=$((i+1)) ;;
+    -nzones)      NZONES="${!i}";          i=$((i+1)) ;;
+    -ndec_zones)  NDEC_ZONES="${!i}";      i=$((i+1)) ;;
+    -maxvel)      MAXVEL="${!i}";          i=$((i+1)) ;;   # NOT forwarded
+    -window_days) WINDOW_DAYS="${!i}";     i=$((i+1)) ;;
+    -overlap)     OVERLAP_DEG="${!i}";     i=$((i+1)) ;;
+    -dec_overlap) DEC_OVERLAP_DEG="${!i}"; i=$((i+1)) ;;
+    -njobs)       NJOBS="${!i}";           i=$((i+1)) ;;
     -imgs)
       IMGS="${!i}"; PASS_ARGS+=("$arg" "${!i}"); i=$((i+1)) ;;
     -tracklets)
@@ -123,17 +137,26 @@ if [ -z "$WINDOW_DAYS" ]; then
   echo "Auto-detected window: ${WINDOW_DAYS} days (from $IMGS)"
 fi
 
-# ── compute overlap and zone width ────────────────────────────────────────────
+# ── compute overlap and zone widths ───────────────────────────────────────────
 if [ -z "$OVERLAP_DEG" ]; then
   OVERLAP_DEG=$(awk -v mv="$MAXVEL" -v wd="$WINDOW_DAYS" \
     'BEGIN { printf "%.4f", mv * wd }')
 fi
-WIDTH=$(awk -v nz="$NZONES" 'BEGIN { printf "%.6f", 360.0 / nz }')
+if [ -z "$DEC_OVERLAP_DEG" ]; then
+  DEC_OVERLAP_DEG="$OVERLAP_DEG"
+fi
+RA_WIDTH=$(awk -v nz="$NZONES" 'BEGIN { printf "%.6f", 360.0 / nz }')
+DEC_HEIGHT=$(awk -v nz="$NDEC_ZONES" 'BEGIN { printf "%.6f", 180.0 / nz }')
+
+NTOT=$(( NZONES * NDEC_ZONES ))
 
 echo "====================================================="
 echo "heliolinc_zonesplit"
-echo "  Zones    : $NZONES × ${WIDTH}° wide"
-echo "  Overlap  : ${OVERLAP_DEG}° (maxvel=${MAXVEL} deg/day × window=${WINDOW_DAYS} days)"
+echo "  RA zones  : $NZONES × ${RA_WIDTH}°"
+echo "  Dec zones : $NDEC_ZONES × ${DEC_HEIGHT}°"
+echo "  RA overlap: ${OVERLAP_DEG}° (maxvel=${MAXVEL} deg/day × window=${WINDOW_DAYS} days)"
+echo "  Dec overlap: ${DEC_OVERLAP_DEG}°"
+echo "  Total zones: $NTOT"
 echo "  Binary   : $HL_BIN"
 echo "  tracklets: $TRACKLETS"
 echo "  trk2det  : $TRK2DET"
@@ -142,15 +165,28 @@ echo "  clust2det: $C2D"
 echo "====================================================="
 
 # ── compute zone RA bounds ────────────────────────────────────────────────────
-declare -a ZONE_LO ZONE_HI
-while IFS=' ' read -r z lo hi; do
-  ZONE_LO[$z]=$lo
-  ZONE_HI[$z]=$hi
-done < <(awk -v nz="$NZONES" -v w="$WIDTH" -v ov="$OVERLAP_DEG" 'BEGIN {
+declare -a RA_LO RA_HI
+while IFS=' ' read -r r lo hi; do
+  RA_LO[$r]=$lo
+  RA_HI[$r]=$hi
+done < <(awk -v nz="$NZONES" -v w="$RA_WIDTH" -v ov="$OVERLAP_DEG" 'BEGIN {
   for (z = 0; z < nz; z++) {
     lo = ((z * w - ov) % 360 + 360) % 360
     hi = (((z+1) * w + ov) % 360 + 360) % 360
     printf "%d %.4f %.4f\n", z, lo, hi
+  }
+}')
+
+# ── compute zone Dec bounds ───────────────────────────────────────────────────
+declare -a DEC_LO DEC_HI
+while IFS=' ' read -r d lo hi; do
+  DEC_LO[$d]=$lo
+  DEC_HI[$d]=$hi
+done < <(awk -v nz="$NDEC_ZONES" -v h="$DEC_HEIGHT" -v ov="$DEC_OVERLAP_DEG" 'BEGIN {
+  for (d = 0; d < nz; d++) {
+    lo = d * h - 90 - ov
+    hi = (d + 1) * h - 90 + ov
+    printf "%d %.4f %.4f\n", d, lo, hi
   }
 }')
 
@@ -161,21 +197,22 @@ trap 'echo "Cleaning up $ZONETMP ..."; rm -rf "$ZONETMP"' EXIT
 
 # ── filter tracklets and trk2det for one zone (runs in background) ────────────
 # tracklets.csv format: #Image1,RA1,Dec1,Image2,RA2,Dec2,npts,trk_ID
-#   RA1=$2, RA2=$5, trk_ID=$8 (awk 1-indexed)
+#   RA1=$2, Dec1=$3, RA2=$5, Dec2=$6, trk_ID=$8 (awk 1-indexed)
 # trk2det.csv format:  #trk_ID,detnum
 #   trk_ID=$1, detnum=$2 (unchanged in output — detnum indexes pairdets)
 #
 # Strategy:
-#   Pass 1: filter tracklets by midpoint RA, renumber trk_ID 0..N-1,
-#           write old→new ID mapping.
+#   Pass 1: filter tracklets by midpoint RA and midpoint Dec, renumber
+#           trk_ID 0..N-1, write old→new ID mapping.
 #   Pass 2: filter trk2det keeping only rows whose old trk_ID was kept,
 #           substitute new trk_ID, keep detnum unchanged.
 filter_and_run() {
-  local z=$1 lo=$2 hi=$3
+  local z=$1 ra_lo=$2 ra_hi=$3 dec_lo=$4 dec_hi=$5
   local ZDIR="${ZONETMP}/zone${z}"
 
   # ── Pass 1: filter tracklets ─────────────────────────────────────────────
-  awk -F, -v min_ra="$lo" -v max_ra="$hi" \
+  awk -F, -v min_ra="$ra_lo" -v max_ra="$ra_hi" \
+      -v min_dec="$dec_lo" -v max_dec="$dec_hi" \
       -v trkout="${ZDIR}/tracklets.csv" \
       -v mapout="${ZDIR}/trk_id_map.csv" \
       'BEGIN { OFS=","; new_n=0 }
@@ -185,12 +222,14 @@ filter_and_run() {
          dra = ra2 - ra1
          if (dra >  180) dra -= 360
          if (dra < -180) dra += 360
-         mid = (ra1 + 0.5*dra + 360) % 360
+         mid_ra = (ra1 + 0.5*dra + 360) % 360
          if (min_ra+0 <= max_ra+0)
-           in_zone = (mid >= min_ra && mid <= max_ra)
+           in_ra = (mid_ra >= min_ra && mid_ra <= max_ra)
          else
-           in_zone = (mid >= min_ra || mid <= max_ra)
-         if (in_zone) {
+           in_ra = (mid_ra >= min_ra || mid_ra <= max_ra)
+         mid_dec = ($3+0 + $6+0) * 0.5
+         in_dec = (mid_dec >= min_dec && mid_dec <= max_dec)
+         if (in_ra && in_dec) {
            old_id = $8+0
            $8 = new_n
            print > trkout
@@ -210,17 +249,16 @@ filter_and_run() {
   # ── Count and report ─────────────────────────────────────────────────────
   local n_trk
   n_trk=$(awk '!/^#/ && NF' "${ZDIR}/tracklets.csv" | wc -l)
-  printf "  Zone %d  RA [%.2f, %.2f]: %d tracklets (%.0f%% of input)\n" \
-    "$z" "$lo" "$hi" "$n_trk" \
+  printf "  Zone %d  RA [%.2f, %.2f]  Dec [%.2f, %.2f]: %d tracklets (%.0f%% of input)\n" \
+    "$z" "$ra_lo" "$ra_hi" "$dec_lo" "$dec_hi" "$n_trk" \
     "$(awk -v n="$n_trk" -v tot="$(awk '!/^#/ && NF' "$TRACKLETS" | wc -l)" \
        'BEGIN{printf "%.1f", 100*n/tot}')"
 
   # ── Launch heliolinc_lowmem_omp for this zone ────────────────────────────
-  # No -min_RA/-max_RA here: the pre-filtered tracklets already contain only
-  # the zone's tracklets (by midpoint RA), so heliolinc should process all of
-  # them.  Adding an internal RA filter on top would further reject tracklets
-  # near zone boundaries where the projected RA differs from the midpoint RA,
-  # causing ~10% linkage loss vs. the single-run baseline.
+  # No -min_RA/-max_RA/-min_Dec/-max_Dec here: the pre-filtered tracklets
+  # already contain only this zone's tracklets, so heliolinc should process
+  # all of them.  An additional internal filter would cause linkage loss at
+  # zone boundaries where projected RA/Dec differs from the midpoint values.
   "$HL_BIN" "${PASS_ARGS[@]}" \
     -tracklets "${ZDIR}/tracklets.csv" \
     -trk2det   "${ZDIR}/trk2det.csv" \
@@ -234,36 +272,42 @@ export ZONETMP TRACKLETS TRK2DET HL_BIN PASS_ARGS
 
 # ── launch zone jobs ──────────────────────────────────────────────────────────
 declare -a PIDS ZONES_LAUNCHED
-for z in $(seq 0 $((NZONES-1))); do
-  mkdir -p "${ZONETMP}/zone${z}"
-  lo=${ZONE_LO[$z]}
-  hi=${ZONE_HI[$z]}
+z=0
+for ra_idx in $(seq 0 $((NZONES-1))); do
+  for dec_idx in $(seq 0 $((NDEC_ZONES-1))); do
+    mkdir -p "${ZONETMP}/zone${z}"
+    ra_lo=${RA_LO[$ra_idx]}
+    ra_hi=${RA_HI[$ra_idx]}
+    dec_lo=${DEC_LO[$dec_idx]}
+    dec_hi=${DEC_HI[$dec_idx]}
 
-  filter_and_run "$z" "$lo" "$hi" &
-  PIDS+=($!)
-  ZONES_LAUNCHED+=($z)
+    filter_and_run "$z" "$ra_lo" "$ra_hi" "$dec_lo" "$dec_hi" &
+    PIDS+=($!)
+    ZONES_LAUNCHED+=($z)
+    z=$((z+1))
 
-  # Throttle if -njobs set
-  if [ "$NJOBS" -gt 0 ] && [ $(( (z + 1) % NJOBS )) -eq 0 ]; then
-    for pid in "${PIDS[@]}"; do wait "$pid"; done
-    PIDS=()
-  fi
+    # Throttle if -njobs set
+    if [ "$NJOBS" -gt 0 ] && [ $(( ${#PIDS[@]} % NJOBS )) -eq 0 ]; then
+      for pid in "${PIDS[@]}"; do wait "$pid" || true; done
+      PIDS=()
+    fi
+  done
 done
 
 # Wait for remaining jobs and check for failures
 FAILED=0
 for idx in "${!PIDS[@]}"; do
   pid=${PIDS[$idx]}
-  z=${ZONES_LAUNCHED[$idx]}
+  zone=${ZONES_LAUNCHED[$idx]}
   if ! wait "$pid"; then
-    echo "ERROR: zone $z failed (pid $pid). Stderr:" >&2
-    cat "${ZONETMP}/zone${z}/stderr.txt" >&2
+    echo "ERROR: zone $zone failed (pid $pid). Stderr:" >&2
+    cat "${ZONETMP}/zone${zone}/stderr.txt" >&2
     FAILED=1
   fi
 done
 [ "$FAILED" -eq 1 ] && exit 1
 
-echo "All $NZONES zone jobs completed."
+echo "All $NTOT zone jobs completed."
 
 # ── discover hypothesis count ─────────────────────────────────────────────────
 if [ -n "$HYPFILE" ]; then
@@ -271,7 +315,7 @@ if [ -n "$HYPFILE" ]; then
 else
   N_HYP=$(ls "${ZONETMP}/zone0"/sum_*.txt 2>/dev/null | wc -l)
 fi
-echo "Merging $N_HYP hypothesis files from $NZONES zones ..."
+echo "Merging $N_HYP hypothesis files from $NTOT zones ..."
 
 # ── merge per hypothesis ──────────────────────────────────────────────────────
 # For each hypothesis h, concatenate zone outputs with cluster-ID offsets so
@@ -283,9 +327,9 @@ merge_hypothesis() {
   local offset=0
   local wrote_header=0
 
-  for z in $(seq 0 $((NZONES-1))); do
-    local zsum="${ZONETMP}/zone${z}/sum_${h}.txt"
-    local zc2d="${ZONETMP}/zone${z}/c2d_${h}.csv"
+  for zone in $(seq 0 $((NTOT-1))); do
+    local zsum="${ZONETMP}/zone${zone}/sum_${h}.txt"
+    local zc2d="${ZONETMP}/zone${zone}/c2d_${h}.csv"
     [ -f "$zsum" ] || continue
 
     if [ "$wrote_header" -eq 0 ]; then
@@ -313,7 +357,7 @@ merge_hypothesis() {
 }
 
 export -f merge_hypothesis
-export ZONETMP OUTSUM C2D NZONES
+export ZONETMP OUTSUM C2D NTOT
 
 MERGE_JOBS=16
 running=0
@@ -329,6 +373,6 @@ wait
 
 echo "====================================================="
 echo "heliolinc_zonesplit done."
-echo "  ${N_HYP} hypothesis files merged from ${NZONES} zones."
+echo "  ${N_HYP} hypothesis files merged from ${NTOT} zones."
 echo "  Outputs: ${OUTSUM}_0.txt ... ${OUTSUM}_$((N_HYP-1)).txt"
 echo "====================================================="
