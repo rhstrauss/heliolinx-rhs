@@ -32769,7 +32769,7 @@ int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tra
 }
 
 // trk2statevec_fgfunc: September 05, 2023
-int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler)
+int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -32868,6 +32868,18 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
   }
   for(pairct=0; pairct<pairnum; pairct++) {
     badpoint=0;
+    // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
+    if(min_RA > 0.0 || max_RA < 360.0) {
+      double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+      if(dra > 180.0) dra -= 360.0;
+      if(dra < -180.0) dra += 360.0;
+      double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
+      if(mid_RA < 0.0) mid_RA += 360.0;
+      if(mid_RA >= 360.0) mid_RA -= 360.0;
+      bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
+                                        : (mid_RA >= min_RA || mid_RA <= max_RA);
+      if(!in_zone) continue;
+    }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
     i2=tracklets[pairct].Img2;
@@ -33000,7 +33012,7 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
 
 // trk2statevec_fgfuncRR: April 26, 2024:
 // Uses Ben Engebreth's heliolincRR algorithm
-int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler)
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33103,6 +33115,18 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
   }
   for(pairct=0; pairct<pairnum; pairct++) {
     badpoint=0;
+    // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
+    if(min_RA > 0.0 || max_RA < 360.0) {
+      double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+      if(dra > 180.0) dra -= 360.0;
+      if(dra < -180.0) dra += 360.0;
+      double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
+      if(mid_RA < 0.0) mid_RA += 360.0;
+      if(mid_RA >= 360.0) mid_RA -= 360.0;
+      bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
+                                        : (mid_RA >= min_RA || mid_RA <= max_RA);
+      if(!in_zone) continue;
+    }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
     i2=tracklets[pairct].Img2;
@@ -33288,7 +33312,6 @@ int trk2statevec_clusterprobe(const vector <hlimage> &image_log, const vector <t
   }
   for(pairct=0; pairct<pairnum; pairct++) {
     badpoint=0;
-    // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
     i2=tracklets[pairct].Img2;
     // Project the first point
@@ -33413,7 +33436,6 @@ int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vec
   }
   for(pairct=0; pairct<pairnum; pairct++) {
     badpoint=0;
-    // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
     i2=tracklets[pairct].Img2;
     // Project the first point
@@ -33487,7 +33509,7 @@ int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vec
 
 
 // trk2statevec_univar: September 05, 2023
-int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose)
+int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33584,6 +33606,18 @@ int trk2statevec_univar(const vector <hlimage> &image_log, const vector <trackle
   }
   for(pairct=0; pairct<pairnum; pairct++) {
     badpoint=0;
+    // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
+    if(min_RA > 0.0 || max_RA < 360.0) {
+      double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+      if(dra > 180.0) dra -= 360.0;
+      if(dra < -180.0) dra += 360.0;
+      double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
+      if(mid_RA < 0.0) mid_RA += 360.0;
+      if(mid_RA >= 360.0) mid_RA -= 360.0;
+      bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
+                                        : (mid_RA >= min_RA || mid_RA <= max_RA);
+      if(!in_zone) continue;
+    }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
     i2=tracklets[pairct].Img2;
@@ -33721,7 +33755,7 @@ int trk2statevec_univar(const vector <hlimage> &image_log, const vector <trackle
 // except that it uses the univeral variable formulation of the Kepler problem,
 // which enables it to handle unbound (aka hyperbolic, aka interstellar) orbits,
 // something trk2statevec_fgfuncRR is not able to do.
-int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose)
+int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33823,6 +33857,18 @@ int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <track
   }
   for(pairct=0; pairct<pairnum; pairct++) {
     badpoint=0;
+    // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
+    if(min_RA > 0.0 || max_RA < 360.0) {
+      double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+      if(dra > 180.0) dra -= 360.0;
+      if(dra < -180.0) dra += 360.0;
+      double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
+      if(mid_RA < 0.0) mid_RA += 360.0;
+      if(mid_RA >= 360.0) mid_RA -= 360.0;
+      bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
+                                        : (mid_RA >= min_RA || mid_RA <= max_RA);
+      if(!in_zone) continue;
+    }
     // Obtain indices to the image_log and heliocentric distance vectors.
     i1=tracklets[pairct].Img1;
     i2=tracklets[pairct].Img2;
@@ -42381,13 +42427,13 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
 
     // --- project tracklets to state vectors ---
     if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
-      thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA);
     } else if(use_univar == 2) {
-      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA);
     } else if(use_univar == 3) {
-      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA);
     } else {
-      thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA);
     }
     if(thread_status==2) {
       cerr << "Fatal error from trk2statevec for hypothesis " << thread_accelct << "\n";

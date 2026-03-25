@@ -449,6 +449,12 @@ struct HeliolincConfig {
                                // to set use_univar=1, since only the universal variable formulation
                                // can handle unbound orbits.
   int verbose=0;
+  double min_RA = 0.0;    // Sky-zone RA lower bound (degrees, 0-360). Use 0 for no filtering.
+  double max_RA = 360.0;  // Sky-zone RA upper bound (degrees, 0-360). Use 360 for no filtering.
+                          // If min_RA > max_RA, the zone wraps through 0° (e.g. 330-30 covers
+                          // 330°-360° and 0°-30°). Each zone should overlap adjacent zones by
+                          // at least maxvel * window_days degrees to avoid missing real clusters
+                          // at zone boundaries (25° recommended for NEO runs).
 };
 
 struct HeliovaneConfig {
@@ -1958,12 +1964,12 @@ int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, 
 int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int remake_tracklets(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vector <hlimage> &image_log,vector <tracklet> &tracklets, vector <longpair> &trk2det, int verbose);
 int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
-int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
-int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
+int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0);
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0);
 int trk2statevec_clusterprobe(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
 int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
-int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose);
-int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose);
+int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA = 0.0, double max_RA = 360.0);
+int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA = 0.0, double max_RA = 360.0);
 int trk2statevane_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double lambda0, double lambda_dot, double lambda_ddot, double chartimescale, double minsunelong, double maxsunelong, double min_proj_sine, double max_heliodist, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf);
 int trk2statevane_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double lambda0, double lambda_dot, double lambda_ddot, double chartimescale, double minsunelong, double maxsunelong, double min_proj_sine, double maxheliodist, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int verbose);
 void lastroot(const vector <double> &intvec, vector <double> &rootvec, long N);

@@ -515,6 +515,24 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-min_RA" || string(argv[i]) == "-minRA") {
+      if(i+1 < argc) {
+	config.min_RA = stod(argv[++i]);
+	i++;
+      } else {
+	cerr << "min_RA keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-max_RA" || string(argv[i]) == "-maxRA") {
+      if(i+1 < argc) {
+	config.max_RA = stod(argv[++i]);
+	i++;
+      } else {
+	cerr << "max_RA keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
