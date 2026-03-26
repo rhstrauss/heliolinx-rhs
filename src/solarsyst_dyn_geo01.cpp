@@ -47597,6 +47597,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         }
         if(long(heliopos1.size())!=ptnum) {
           cerr << "ERROR: in link_planarity_omp heliolinc branch, of " << ptnum << " input points only " << heliopos1.size() << " were projected for cluster " << inclustct << "\n";
+          badcluster = 1;
         }
         if(long(heliopos2.size())==ptnum) {
           clusterdets2 = clusterdets;
@@ -47640,6 +47641,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         }
         if(long(heliopos1.size())!=ptnum) {
           cerr << "ERROR: in link_planarity_omp heliovane branch, of " << ptnum << " input points only " << heliopos1.size() << " were projected for cluster " << inclustct << "\n";
+          badcluster = 1;
         }
       }
       if(badcluster==1) continue;
