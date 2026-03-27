@@ -32647,7 +32647,7 @@ int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tra
 }
 
 // trk2statevec_fgfunc: September 05, 2023
-int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA, double min_Dec, double max_Dec)
+int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA, double min_Dec, double max_Dec, double min_geodist_filter)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -32809,6 +32809,13 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
 	                             // objects that are barely bound to the sun.
 	if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
 
+	// Tier-1 glob filter: see trk2statevec_fgfuncRR for full explanation.
+	if(min_geodist_filter > 0.0 &&
+	   deltavec1[solnct] < min_geodist_filter * AU_KM &&
+	   deltavec2[solnct] < min_geodist_filter * AU_KM) {
+	  continue;
+	}
+
 	// Begin new stuff added to eliminate 'globs'
 	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
 	// of detections that arise when the hypothetical heliocentric distance at a time when
@@ -32895,7 +32902,7 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
 
 // trk2statevec_fgfuncRR: April 26, 2024:
 // Uses Ben Engebreth's heliolincRR algorithm
-int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA, double min_Dec, double max_Dec)
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA, double max_RA, double min_Dec, double max_Dec, double min_geodist_filter)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33077,6 +33084,21 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
 	                               // set a negative v_inf, if desired, to rule out
 	                               // objects that are barely bound to the sun.
 	  if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
+
+	  // Tier-1 glob filter: skip solutions where BOTH observation endpoints project to
+	  // geocentric distances below min_geodist_filter. Eliminates two glob pathways:
+	  //   (a) r_h < r_observer: near-side (alphaneg) solution has geocentric distance
+	  //       ~= r_observer - r_h -> 0 as r_h -> r_observer (applies to solnct=1).
+	  //   (b) r_h slightly > r_observer: near-Sun observations produce a single solution
+	  //       with small geocentric distance ~= (r_h^2-r_observer^2)/(2*r_observer*cos(elong))
+	  //       (applies to solnct=0 for those tracklets).
+	  // AND condition (both endpoints small) preserves real close-Earth asteroids whose
+	  // geocentric distance changes measurably between observation nights.
+	  if(min_geodist_filter > 0.0 &&
+	     deltavec1[solnct] < min_geodist_filter * AU_KM &&
+	     deltavec2[solnct] < min_geodist_filter * AU_KM) {
+	    continue; // Both endpoints too close to Earth — skip this solution
+	  }
 
 	  // Begin new stuff added to eliminate 'globs'
 	  // These are spurious linkages of unreasonably large numbers (typically tens of thousands)
@@ -33417,7 +33439,7 @@ int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vec
 
 
 // trk2statevec_univar: September 05, 2023
-int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA, double min_Dec, double max_Dec)
+int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA, double min_Dec, double max_Dec, double min_geodist_filter)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33576,7 +33598,14 @@ int trk2statevec_univar(const vector <hlimage> &image_log, const vector <trackle
 	                             // set a negative v_inf, if desired, to rule out
 	                             // objects that are barely bound to the sun.
 	if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
-      
+
+	// Tier-1 glob filter: see trk2statevec_fgfuncRR for full explanation.
+	if(min_geodist_filter > 0.0 &&
+	   deltavec1[solnct] < min_geodist_filter * AU_KM &&
+	   deltavec2[solnct] < min_geodist_filter * AU_KM) {
+	  continue;
+	}
+
 	// Begin new stuff added to eliminate 'globs'
 	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
 	// of detections that arise when the hypothetical heliocentric distance at a time when
@@ -33668,7 +33697,7 @@ int trk2statevec_univar(const vector <hlimage> &image_log, const vector <trackle
 // except that it uses the univeral variable formulation of the Kepler problem,
 // which enables it to handle unbound (aka hyperbolic, aka interstellar) orbits,
 // something trk2statevec_fgfuncRR is not able to do.
-int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA, double min_Dec, double max_Dec)
+int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA, double max_RA, double min_Dec, double max_Dec, double min_geodist_filter)
 {
   allstatevecs={};
   long imnum = image_log.size();
@@ -33849,6 +33878,21 @@ int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <track
 	                               // set a negative v_inf, if desired, to rule out
 	                               // objects that are barely bound to the sun.
 	  if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
+
+	  // Tier-1 glob filter: skip solutions where BOTH observation endpoints project to
+	  // geocentric distances below min_geodist_filter. Eliminates two glob pathways:
+	  //   (a) r_h < r_observer: near-side (alphaneg) solution has geocentric distance
+	  //       ~= r_observer - r_h -> 0 as r_h -> r_observer (applies to solnct=1).
+	  //   (b) r_h slightly > r_observer: near-Sun observations produce a single solution
+	  //       with small geocentric distance ~= (r_h^2-r_observer^2)/(2*r_observer*cos(elong))
+	  //       (applies to solnct=0 for those tracklets).
+	  // AND condition (both endpoints small) preserves real close-Earth asteroids whose
+	  // geocentric distance changes measurably between observation nights.
+	  if(min_geodist_filter > 0.0 &&
+	     deltavec1[solnct] < min_geodist_filter * AU_KM &&
+	     deltavec2[solnct] < min_geodist_filter * AU_KM) {
+	    continue; // Both endpoints too close to Earth — skip this solution
+	  }
 
 	  // Begin new stuff added to eliminate 'globs'
 	  // These are spurious linkages of unreasonably large numbers (typically tens of thousands)
@@ -34951,7 +34995,7 @@ point3d earthpos01(const vector <EarthState> &earthpos, double mjd)
   }
 }
 
-int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   int geobinct = 0;
   long detnum = detvec.size();
@@ -35037,6 +35081,14 @@ int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -35185,7 +35237,7 @@ int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &
 // form_clusters_lowmem: July 11, 2025:
 // Uses the DBSCAN algorithm, like form_clusters, but
 // with lower memory output.
-int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   if(detnum>=UINT_MAX) {
@@ -35272,6 +35324,14 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -35415,7 +35475,7 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
 // form_clusters_kd: December 04, 2023: 
 // Like form_clusters, but uses a simple KD range-query,
 // rather than DBSCAN, to create clusters.
-int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   int geobinct = 0;
   long detnum = detvec.size();
@@ -35500,6 +35560,14 @@ int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -35742,7 +35810,7 @@ long blend_vector(vector<long> vec)
 // form_clusters_kd2: December 04, 2023: 
 // Like form_clusters_kd, but does filtering
 // to remove exact duplicates.
-int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   double georadmin=0l;
@@ -35825,6 +35893,14 @@ int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       cout << "Created a KD tree with " << kdvec.size() << " branches\n";
       double q2=0.0;
@@ -36002,7 +36078,7 @@ int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hlde
 // intelligently than form_clusters_kd2, by not
 // invoking the .insert function, which is evil because
 // it's agonizingly slow for long vectors.
-int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   double georadmin=0l;
@@ -36083,6 +36159,14 @@ int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -36277,7 +36361,7 @@ int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hlde
 // geocentric distance in AU within which the clustering
 // radius will no longer change with geocentric distance.
 // Original behavior is recovered for clustchangerad = 0.0;
-int form_clusters_kd4(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kd4(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   double georadmin=0l;
@@ -36362,6 +36446,14 @@ int form_clusters_kd4(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -36667,7 +36759,7 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
     if(verbose>=1) cout  << fixed << setprecision(2) << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
     if(binstatevecs.size() < npt) {
       continue; // No clusters possible, skip to the next step.
-    } else {      
+    } else {
       vector <KD_point6ix2> kdtree;
       kdtree_6i01_fast(binstatevecs, kdtree);
       kdnum = kdtree.size();
@@ -36782,7 +36874,7 @@ vector <long> uintvec2long(vector <unsigned int> uivec)
 // form_clusters_kd4_lowmem: July 08, 2024: 
 // Like form_clusters_kd4, but tries to minimize
 // heliolinc's memory usage.
-int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   if(detnum>=UINT_MAX) {
@@ -36869,6 +36961,14 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -37122,7 +37222,7 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
 // than position and velocity*chartimescale at mjdref, as in previous
 // form_clusters programs. Uses a simple KD range-query,
 // rather than DBSCAN, to create clusters.
-int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   double georadmin=0l;
@@ -37205,6 +37305,14 @@ int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -37454,7 +37562,7 @@ int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet
 // form_clusters_RR_lowmem: July 11, 2025:
 // Like form_clusters_RR, but uses the uint_pair and the
 // shortclust classes to reduce memory usage.
-int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   if(detnum>=UINT_MAX) {
@@ -37542,6 +37650,14 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
       continue; // No clusters possible, skip to the next step.
     } else {
       vector <KD_point6ix2> kdvec;
+      if(max_statevecs_per_bin > 0 && (long)binstatevecs.size() > max_statevecs_per_bin) {
+        cout << "WARNING: geocentric bin [" << georadmin << " to " << georadmax
+             << " AU] has " << binstatevecs.size() << " state vectors; subsampling to "
+             << max_statevecs_per_bin << "\n";
+        std::shuffle(binstatevecs.begin(), binstatevecs.end(),
+                     std::default_random_engine((unsigned)(georadcen * 1e6)));
+        binstatevecs.erase(binstatevecs.begin() + max_statevecs_per_bin, binstatevecs.end());
+      }
       kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
@@ -37811,7 +37927,7 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
 // Like form_clusters_kd4, but performs clustering
 // in the 3-D paramter space of X, Y, Z, rather than the
 // 6-D space of X, Y, Z, VX, VY, VZ.
-int form_clusters_kdR(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kdR(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   double georadmin=0l;
@@ -38143,7 +38259,7 @@ int form_clusters_kdR(const vector <point6ix2> &allstatevecs, const vector <hlde
 // Like form_clusters_kd4, but performs clustering
 // in the 3-D paramter space of X, Y, Z, rather than the
 // 6-D space of X, Y, Z, VX, VY, VZ.
-int form_clusters_kdR_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose)
+int form_clusters_kdR_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose, long max_statevecs_per_bin)
 {
   long detnum = detvec.size();
   if(detnum>=UINT_MAX) {
@@ -38585,7 +38701,7 @@ int heliolinc_alg(const vector <hlimage> &image_log, const vector <hldet> &detve
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -38691,7 +38807,7 @@ int heliolinc_alg_fgfunc(const vector <hlimage> &image_log, const vector <hldet>
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -38797,7 +38913,7 @@ int heliolinc_alg_univar(const vector <hlimage> &image_log, const vector <hldet>
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -38909,7 +39025,7 @@ int heliolinc_alg_danby(const vector <hlimage> &image_log, const vector <hldet> 
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -39043,7 +39159,7 @@ int heliovane_alg_danby(const vector <hlimage> &image_log, const vector <hldet> 
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -39209,13 +39325,13 @@ int heliovane_alg_all(const vector <hlimage> &image_log, const vector <hldet> &d
     long newhypstart = outclust.size();
     if(config.use_univar==2 || config.use_univar==3) {
       // Use old DBSCAN algorithm for clustering.
-      status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       }
     } else {
       // Use a KDtree range-query in six dimensions for clustering.
-      status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
       }
@@ -39349,7 +39465,7 @@ int heliolinc_alg_omp(const vector <hlimage> &image_log, const vector <hldet> &d
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -39455,7 +39571,7 @@ int heliolinc_alg_omp2(const vector <hlimage> &image_log, const vector <hldet> &
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       return(status);
@@ -39594,7 +39710,7 @@ int heliolinc_alg_omp3(const vector <hlimage> &image_log, const vector <hldet> &
 	// trk2statevec probably ran OK, and some clusters possible.
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-	status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	if(status!=0) {
 	  cerr << "ERROR: form_clusters exited with error code " << status << "\n";
 	}
@@ -39762,7 +39878,7 @@ int heliolinc_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
 	// trk2statevec probably ran OK, and some clusters possible.
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-	status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	if(status!=0) {
 	  cerr << "ERROR: form_clusters exited with error code " << status << "\n";
 	}
@@ -39930,7 +40046,7 @@ int heliolinc_alg_ompkd(const vector <hlimage> &image_log, const vector <hldet> 
 	// trk2statevec probably ran OK, and some clusters possible.
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-	status = form_clusters_kd2(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	status = form_clusters_kd2(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	allstatevecs = vector<point6ix2>();
 	allstatevecs = {};
 	if(status!=0) {
@@ -40100,7 +40216,7 @@ int heliolinc_alg_ompkd3(const vector <hlimage> &image_log, const vector <hldet>
 	// trk2statevec probably ran OK, and some clusters possible.
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-	status = form_clusters_kd3(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	status = form_clusters_kd3(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	if(status!=0) {
 	  cerr << "ERROR: form_clusters exited with error code " << status << "\n";
 	}
@@ -40745,7 +40861,7 @@ int heliolinc_alg_ompkd4(const vector <hlimage> &image_log, const vector <hldet>
 	// trk2statevec probably ran OK, and some clusters possible.
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-	status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	if(status!=0) {
 	  cerr << "ERROR: form_clusters exited with error code " << status << "\n";
 	}
@@ -40892,7 +41008,7 @@ int heliolinc_alg_kd(const vector <hlimage> &image_log, const vector <hldet> &de
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
     }
@@ -40999,9 +41115,9 @@ int heliolinc_alg_RR(const vector <hlimage> &image_log, const vector <hldet> &de
     // Covert all tracklets into state vectors at the reference time, under
     // the assumption that the heliocentric distance hypothesis is correct.
     if(config.use_univar >= 1) {
-      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, 0, config.verbose);
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, 0, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
-      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, 0);
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, 0, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     }
 
     if(status==1) {
@@ -41016,7 +41132,7 @@ int heliolinc_alg_RR(const vector <hlimage> &image_log, const vector <hldet> &de
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters_RR exited with error code " << status << "\n";
     }
@@ -41140,7 +41256,7 @@ int heliolinc_alg_R(const vector <hlimage> &image_log, const vector <hldet> &det
     if(allstatevecs.size()<=1) continue; // No clusters possible, skip to the next step.
     if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-    status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+    status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
     if(status!=0) {
       cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
     }
@@ -41283,14 +41399,14 @@ int heliolinc_alg_all(const vector <hlimage> &image_log, const vector <hldet> &d
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the Kepler f and g functions for orbit propagation
       // This is faster than the universal variable formulation, but cannot handle hyperbolic
-      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
       // Integrate to perform clustering in the parameter space of Ben Engebreth's 
       // heliolinc_RR algorithm, which uses position vectors at two different
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the universal variable formulation of the Kepler problem for orbit propagation.
       // This is slightly slower than the f and g functions, but it can handle hyperbolic orbits.
-      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
       // Integrate to perform clustering in the standard heliolinc3d parameter space
       // of position and velocity at a single reference time: X, Y, Z, VX, VY, and VZ.
@@ -41315,25 +41431,25 @@ int heliolinc_alg_all(const vector <hlimage> &image_log, const vector <hldet> &d
 
     if(use_univar==6 || use_univar==7) {
       // Use old DBSCAN algorithm in six dimensions for clustering the standard heliolinc parameter space
-      status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       }
     } else if(use_univar==2 || use_univar==3) {
       // Use a KDtree range-query in six dimensions for clustering the heliolinc_RR parameter space
-      status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_RR exited with error code " << status << "\n";
       }
     } else if (use_univar==4 || use_univar==5) {
       // Use a KDtree range-query in only three dimensions for clustering the position-only heliolinc parameter space
-      status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
       }
     } else {
       // Use a KDtree range-query in six dimensions for clustering the standard heliolinc parameter space
-      status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
       }
@@ -41523,7 +41639,7 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
 	// reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
 	// Use the Kepler f and g functions for orbit propagation
 	// This is faster than the universal variable formulation, but cannot handle hyperbolic
-	status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+	status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
 	if(status==1) {
 	  cerr << "FAILURE IN THREAD " << ithread << ": ";
 	  cerr << "hypothesis " << accelct << ": " << radhyp[accelct].HelioRad << " " << radhyp[accelct].R_dot << " " << radhyp[accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
@@ -41538,7 +41654,7 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
 	// reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
 	// Use the universal variable formulation of the Kepler problem for orbit propagation.
 	// This is slightly slower than the f and g functions, but it can handle hyperbolic orbits.
-	status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+	status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
 	if(status==1) {
 	  cerr << "FAILURE IN THREAD " << ithread << ": ";
 	  cerr << "hypothesis " << accelct << ": " << radhyp[accelct].HelioRad << " " << radhyp[accelct].R_dot << " " << radhyp[accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
@@ -41570,25 +41686,25 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
 
 	if(use_univar==6 || use_univar==7) {
 	  // Use old DBSCAN algorithm in six dimensions for clustering the standard heliolinc parameter space
-	  status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(status!=0) {
 	    cerr << "ERROR: form_clusters exited with error code " << status << "\n";
 	  }
 	} else if(use_univar==2 || use_univar==3) {
 	  // Use a KDtree range-query in six dimensions for clustering the heliolinc_RR parameter space
-	  status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(status!=0) {
 	    cerr << "ERROR: form_clusters_RR exited with error code " << status << "\n";
 	  }
 	} else if (use_univar==4 || use_univar==5) {
 	  // Use a KDtree range-query in only three dimensions for clustering the position-only heliolinc parameter space
-	  status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(status!=0) {
 	    cerr << "ERROR: form_clusters_kdR exited with error code " << status << "\n";
 	  }
 	} else {
 	  // Use a KDtree range-query in six dimensions for clustering the standard heliolinc parameter space
-	  status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(status!=0) {
 	    cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
 	  }
@@ -41774,14 +41890,14 @@ int heliolinc_alg_lowmem(const vector <hlimage> &image_log, const vector <hldet>
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the Kepler f and g functions for orbit propagation
       // This is faster than the universal variable formulation, but cannot handle hyperbolic
-      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
       // Integrate to perform clustering in the parameter space of Ben Engebreth's 
       // heliolinc_RR algorithm, which uses position vectors at two different
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the universal variable formulation of the Kepler problem for orbit propagation.
       // This is slightly slower than the f and g functions, but it can handle hyperbolic orbits.
-      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
       // Integrate to perform clustering in the standard heliolinc3d parameter space
       // of position and velocity at a single reference time: X, Y, Z, VX, VY, and VZ.
@@ -41806,25 +41922,25 @@ int heliolinc_alg_lowmem(const vector <hlimage> &image_log, const vector <hldet>
 
     if(use_univar==6 || use_univar==7) {
       // Use old DBSCAN algorithm in six dimensions for clustering the standard heliolinc parameter space
-      status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters exited with error code " << status << "\n";
       }
     } else if(use_univar==2 || use_univar==3) {
       // Use a KDtree range-query in six dimensions for clustering the heliolinc_RR parameter space
-      status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_RR exited with error code " << status << "\n";
       }
     } else if (use_univar==4 || use_univar==5) {
       // Use a KDtree range-query in only three dimensions for clustering the position-only heliolinc parameter space
-      status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_kd4 exited with error code " << status << "\n";
       }
     } else {
       // Use a KDtree range-query in six dimensions for clustering the standard heliolinc parameter space
-      status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[accelct], heliovel[accelct], helioacc[accelct], accelct, chartimescale, outclust_lowmem, clust2det_lowmem, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       if(status!=0) {
 	cerr << "ERROR: form_clusters_kd4_lowmem exited with error code " << status << "\n";
       }
@@ -42071,7 +42187,7 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
 	  cerr << "Fatal error case from trk2statevec_univar.\n";
 	}
       } else if(use_univar == 2) {
-	thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+	thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
 	if(thread_status==1) {
 	  cerr << "FAILURE IN THREAD " << ithread << ": ";
 	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
@@ -42079,7 +42195,7 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
 	  cerr << "Fatal error case from trk2statevec_fgfuncRR.\n";
 	}
       } else if(use_univar == 3) {
-	thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+	thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
 	if(thread_status==1) {
 	  cerr << "FAILURE IN THREAD " << ithread << ": ";
 	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
@@ -42098,16 +42214,16 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
       if(thread_status==0 && allstatevecs.size()>1) {
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 	if(use_univar==6 || use_univar==7) {
-	  thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(thread_status!=0) cerr << "ERROR: form_clusters_lowmem exited with error code " << thread_status << "\n";
 	} else if(use_univar==2 || use_univar==3) {
-	  thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(thread_status!=0) cerr << "ERROR: form_clusters_RR_lowmem exited with error code " << thread_status << "\n";
 	} else if(use_univar==4 || use_univar==5) {
-	  thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(thread_status!=0) cerr << "ERROR: form_clusters_kdR_lowmem exited with error code " << thread_status << "\n";
 	} else {
-	  thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	  if(thread_status!=0) cerr << "ERROR: form_clusters_kd4_lowmem exited with error code " << thread_status << "\n";
 	}
       }
@@ -42325,9 +42441,9 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
       thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     } else if(use_univar == 2) {
-      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
-      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
+      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
       thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     }
@@ -42341,13 +42457,13 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     // --- cluster state vectors ---
     if(thread_status==0 && allstatevecs.size()>1) {
       if(use_univar==6 || use_univar==7) {
-        thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+        thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       } else if(use_univar==2 || use_univar==3) {
-        thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+        thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       } else if(use_univar==4 || use_univar==5) {
-        thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+        thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       } else {
-        thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+        thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
       }
       if(thread_status!=0) {
         cerr << "ERROR: form_clusters exited with error code " << thread_status << " for hypothesis " << thread_accelct << "\n";
@@ -42540,14 +42656,14 @@ int heliolinc_highgrade(const vector <hlimage> &image_log, const vector <hldet> 
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the Kepler f and g functions for orbit propagation
       // This is faster than the universal variable formulation, but cannot handle hyperbolic
-      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
       // Integrate to perform clustering in the parameter space of Ben Engebreth's 
       // heliolinc_RR algorithm, which uses position vectors at two different
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the universal variable formulation of the Kepler problem for orbit propagation.
       // This is slightly slower than the f and g functions, but it can handle hyperbolic orbits.
-      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
       // Integrate to perform clustering in the standard heliolinc3d parameter space
       // of position and velocity at a single reference time: X, Y, Z, VX, VY, and VZ.
@@ -42746,14 +42862,14 @@ int heliolinc_highgrade2(const vector <hlimage> &image_log, const vector <hldet>
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the Kepler f and g functions for orbit propagation
       // This is faster than the universal variable formulation, but cannot handle hyperbolic
-      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
       // Integrate to perform clustering in the parameter space of Ben Engebreth's 
       // heliolinc_RR algorithm, which uses position vectors at two different
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the universal variable formulation of the Kepler problem for orbit propagation.
       // This is slightly slower than the f and g functions, but it can handle hyperbolic orbits.
-      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
       // Integrate to perform clustering in the standard heliolinc3d parameter space
       // of position and velocity at a single reference time: X, Y, Z, VX, VY, and VZ.
@@ -42949,9 +43065,9 @@ int heliolinc_highgrade2_omp(const vector <hlimage> &image_log, const vector <hl
     if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
       local_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
     } else if(use_univar == 2) {
-      local_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      local_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
-      local_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+      local_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
       local_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
     }
@@ -43185,7 +43301,7 @@ int heliovane_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
 	// trk2statevane probably ran OK, and some clusters possible.
 	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
 
-	status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, lambdahyp[lambdact].HelioRad, lambdahyp[lambdact].R_dot, lambdahyp[lambdact].R_dubdot, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], gridpoint_clusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose, config.max_statevecs_per_bin);
 	if(status!=0) {
 	  cerr << "ERROR: form_clusters exited with error code " << status << "\n";
 	}

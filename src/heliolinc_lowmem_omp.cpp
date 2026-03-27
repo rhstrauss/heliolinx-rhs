@@ -181,7 +181,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf -max_threads N -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
+  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -mingeofilter min_geocentric_dist_filter(AU) -maxbinsize max_statevecs_per_geocentric_bin -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf -max_threads N -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -429,6 +429,26 @@ int main(int argc, char *argv[])
       }
       else {
 	cerr << "Minimum impact parameter keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-mingeofilter" || string(argv[i]) == "-mgf" || string(argv[i]) == "-min_geodist_filter" || string(argv[i]) == "--mingeofilter") {
+      if(i+1 < argc) {
+	config.min_geodist_filter=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Minimum geocentric distance filter keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-maxbinsize" || string(argv[i]) == "-mbs" || string(argv[i]) == "-max_bin_size" || string(argv[i]) == "--maxbinsize") {
+      if(i+1 < argc) {
+	config.max_statevecs_per_bin=stol(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Maximum bin size keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
