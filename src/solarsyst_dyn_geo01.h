@@ -1737,6 +1737,7 @@ point6dx2 conv_6i_to_6d(point6ix2 p1, double scale);
 long medind_6ix2(const vector <point6ix2> &pointvec, int dim);
 int splitix2(const vector <point6ix2> &pointvec, int dim, long unsigned int splitpoint, vector <point6ix2> &left, vector <point6ix2> &right);
 int kdtree_6i01(const vector <point6ix2> &invec, int dim, long unsigned int splitpoint, long unsigned int kdroot, vector <KD_point6ix2> &kdvec);
+int kdtree_6i01_fast(vector <point6ix2> &pts, vector <KD_point6ix2> &kdvec);
 long point6ix2_dist2(const point6ix2 &p1, const point6ix2 &p2);
 int kdrange_6i01(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint, long range, vector <long> &indexvec);
 double cluster_stats6i01(const vector <KD_point6ix2> &cluster, double intconvscale, vector <double> &meanvals, vector <double> &rmsvals);

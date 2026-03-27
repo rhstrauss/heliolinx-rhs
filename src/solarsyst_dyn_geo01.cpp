@@ -2880,6 +2880,56 @@ int kdtree_6i01(const vector <point6ix2> &invec, int dim, long unsigned int spli
   return(0);
 }
 
+// kdtree_6i01_inner: internal recursive helper for kdtree_6i01_fast.
+// Builds a subtree for pts[lo..hi-1] splitting on `dim`, appending nodes
+// to kdvec in pre-order.  Returns the kdvec index of the subtree root,
+// or -1 if the range is empty.
+static long kdtree_6i01_inner(vector<point6ix2> &pts, long lo, long hi, int dim, vector<KD_point6ix2> &kdvec)
+{
+  if(hi <= lo) return -1;
+  long mid = lo + (hi - lo) / 2;
+  // nth_element rearranges pts[lo..hi-1] so that pts[mid] holds the element
+  // that would be at that position in a sorted array, with all elements in
+  // pts[lo..mid-1] <= pts[mid] and all elements in pts[mid+1..hi-1] >= pts[mid]
+  // in the chosen dimension.  This is O(N) vs the O(N log N) full sort used
+  // by medind_6ix2.
+  switch(dim % 6) {
+    case 1: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_x());  break;
+    case 2: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_y());  break;
+    case 3: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_z());  break;
+    case 4: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_vx()); break;
+    case 5: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_vy()); break;
+    default: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_vz()); break;
+  }
+  int nextdim = dim % 6 + 1; // cycles 1->2->3->4->5->6->1
+  // Reserve the slot for this node before recursing so nodeIdx stays valid
+  // even after push_backs during recursion (we use an index, not a reference).
+  long nodeIdx = (long)kdvec.size();
+  kdvec.push_back(KD_point6ix2(pts[mid], -1, -1, dim, -1));
+  long leftIdx  = kdtree_6i01_inner(pts, lo,    mid, nextdim, kdvec);
+  kdvec[nodeIdx].left  = leftIdx;
+  long rightIdx = kdtree_6i01_inner(pts, mid+1, hi,  nextdim, kdvec);
+  kdvec[nodeIdx].right = rightIdx;
+  return nodeIdx;
+}
+
+// kdtree_6i01_fast: March 2026.
+// Drop-in replacement for the medind_6ix2 + kdtree_6i01 construction
+// pattern.  Builds a balanced 6-D k-d tree from `pts` in O(N log N) time
+// with O(N) memory and no heap-allocated sub-vectors per level.
+// The resulting kdvec is compatible with kdrange_6i01 and KDRclust_6i01:
+// the root is always at index 0.
+// NOTE: the order of elements in `pts` is changed by this function.
+// Returns 0 on success, 1 if pts is empty (kdvec will be empty).
+int kdtree_6i01_fast(vector<point6ix2> &pts, vector<KD_point6ix2> &kdvec)
+{
+  kdvec.clear();
+  if(pts.empty()) return 1;
+  kdvec.reserve(pts.size());
+  kdtree_6i01_inner(pts, 0, (long)pts.size(), 1, kdvec);
+  return 0;
+}
+
 // point6ix2_dist2: January 07, 2022:
 // Calculate the squared distance in 6-dimensional parameter space
 // between two points of class point6ix2.
@@ -35119,12 +35169,7 @@ int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
-      kdvec={};
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       kdclust={};
@@ -35359,12 +35404,7 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
-      kdvec={};
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       kdclust={};
@@ -35592,12 +35632,7 @@ int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
-      kdvec={};
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       kdclust={};
@@ -35922,11 +35957,7 @@ int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       cout << "Created a KD tree with " << kdvec.size() << " branches\n";
       double q2=0.0;
       for(long q=0;q<=10000000000;q++) q2=sqrt(double(q));
@@ -36184,11 +36215,7 @@ int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -36467,11 +36494,7 @@ int form_clusters_kd4(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -36777,11 +36800,7 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdtree;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdtree.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdtree);
+      kdtree_6i01_fast(binstatevecs, kdtree);
       kdnum = kdtree.size();
       if(verbose>=1) cout << "Created a KD tree with " << kdnum << " branches\n";
 
@@ -36981,11 +37000,7 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -37321,11 +37336,7 @@ int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -37662,11 +37673,7 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
       continue; // No clusters possible, skip to the next step.
     } else {
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
