@@ -33,6 +33,7 @@ src/parse_trk2det
 src/link_purify
 src/link_planarity
 src/link_planarity_omp
+src/make_hypmask
 
 # the static library
 src/libheliolinx.a
