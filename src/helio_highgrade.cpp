@@ -35,12 +35,13 @@ int main(int argc, char *argv[])
   int default_geologstep,default_outdetsfile;
   int default_mingeoobs, default_minimpactpar;
   int default_use_univar, default_max_v_inf;
-  int default_mintimespan, default_minobsnum;
+  int default_mintimespan, default_minobsnum, default_minobsnights;
   default_clustrad = default_clustchangerad = default_npt = 1;
   default_mingeodist = default_maxgeodist = default_geologstep = 1;
   default_mintimespan = default_minobsnum = default_outdetsfile = 1;
   default_mingeoobs = default_minimpactpar = 1;
   default_use_univar = default_max_v_inf = 1;
+  default_minobsnights = 1;
   ofstream outstream1;
   long i=0;
   int status=0;
@@ -195,6 +196,18 @@ int main(int argc, char *argv[])
       }
       else {
 	cerr << "DBSCAN npt keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-minobsnights" || string(argv[i]) == "-minnights" || string(argv[i]) == "-minobsnite" || string(argv[i]) == "--minobsnights" || string(argv[i]) == "--minnights") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	config.minobsnights=stoi(argv[++i]);
+	default_minobsnights = 0;
+	i++;
+      }
+      else {
+	cerr << "Minimum observing nights keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -385,6 +398,8 @@ int main(int argc, char *argv[])
   else cout << "input DBSCAN npt (min. no. of tracklets in a linkage) is " << config.dbscan_npt << "\n";
   if(default_minobsnum==1) cout << "Defaulting to min obsnum (min. no. of unique observations in a linkage) = " << minobsnum << "\n";
   else cout << "input min obsnum (min. no. of unique observations in a linkage) is " << minobsnum << "\n";
+  if(default_minobsnights==1) cout << "Defaulting to min observing nights = " << config.minobsnights << "\n";
+  else cout << "input min observing nights is " << config.minobsnights << "\n";
   if(default_mintimespan==1) cout << "Defaulting to mintimespan = " << config.mintimespan << " days\n";
   else cout << "input mintimespan is " << config.mintimespan << " days\n";
   if(default_mingeodist==1) cout << "Defaulting to minimum geocentric distance = " << config.mingeodist << " AU\n";
