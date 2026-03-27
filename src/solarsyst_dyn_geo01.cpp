@@ -8237,31 +8237,37 @@ int Kepler_fg_func_int(const double MGsun, const double mjdstart, const point3d 
     x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
   }
 
-  // Newton's Method solution for x
-  q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+  // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton,
+  // saving ~2x sin/cos evaluations for the common case of low-eccentricity orbits.
+  double sin_x = sin(x);
+  double cos_x = cos(x);
+  q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
   while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
-    dqdx = 1.0l - EC*cos(x) + ES*sin(x);
-    dx = -q/dqdx;
+    dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+    double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+    double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+    dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
     x += dx;
-    q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+    sin_x = sin(x);
+    cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
     itct++;
-    // cout << "q, x, dqdx, dx: " << std::scientific << q << " " << x << " " << dqdx << " " << dx << "\n";
   }
 
-  // Evaluate f and g functions
+  // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
   double f,g,fdot,gdot,r,v;
   f = g = fdot = gdot = r = v = 0.0l;
-  
-  f = (a/r0)*(cos(x) - 1.0l) + 1.0l;
-  g = deltat + (sin(x) - x)/n;
-  
+
+  f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+  g = deltat + (sin_x - x)/n;
+
   endpos.x = f*startpos.x + g*startvel.x;
   endpos.y = f*startpos.y + g*startvel.y;
   endpos.z = f*startpos.z + g*startvel.z;
   r = vecabs3d(endpos);
 
-  fdot = -a*a*n*sin(x)/r/r0;
-  gdot = a*(cos(x)-1.0l)/r + 1.0l;
+  fdot = -a*a*n*sin_x/r/r0;
+  gdot = a*(cos_x-1.0l)/r + 1.0l;
   
   endvel.x = fdot*startpos.x + gdot*startvel.x;
   endvel.y = fdot*startpos.y + gdot*startvel.y;
@@ -8320,30 +8326,36 @@ int Kepler_fg_func_vec(const double MGsun, const double mjdstart, const point3d 
       x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
     }
 
-    // Newton's Method solution for x
-    q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+    // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton
+    double sin_x = sin(x);
+    double cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
     while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
-      dqdx = 1.0l - EC*cos(x) + ES*sin(x);
-      dx = -q/dqdx;
+      dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+      double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+      double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+      dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
       x += dx;
-      q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+      sin_x = sin(x);
+      cos_x = cos(x);
+      q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
       itct++;
     }
 
-    // Evaluate f and g functions
+    // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
     double f,g,fdot,gdot,r,v;
     f = g = fdot = gdot = r = v = 0.0l;
-  
-    f = (a/r0)*(cos(x) - 1.0l) + 1.0l;
-    g = deltat + (sin(x) - x)/n;
-  
+
+    f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+    g = deltat + (sin_x - x)/n;
+
     posnow.x = f*startpos.x + g*startvel.x;
     posnow.y = f*startpos.y + g*startvel.y;
     posnow.z = f*startpos.z + g*startvel.z;
     r = vecabs3d(posnow);
 
-    fdot = -a*a*n*sin(x)/r/r0;
-    gdot = a*(cos(x)-1.0l)/r + 1.0l;
+    fdot = -a*a*n*sin_x/r/r0;
+    gdot = a*(cos_x-1.0l)/r + 1.0l;
   
     velnow.x = fdot*startpos.x + gdot*startvel.x;
     velnow.y = fdot*startpos.y + gdot*startvel.y;
@@ -41782,12 +41794,35 @@ int heliolinc_alg_all(const vector <hlimage> &image_log, const vector <hldet> &d
     precompute_tracklet_proj_cache(image_log, tracklets, trk_cache);
   }
 
+  // Opt F: pre-compute sorted tracklet angular rates (rad/day) for hypothesis-level pruning.
+  // Cost: O(N log N) once. Benefit: O(log N) skip per hypothesis with no qualifying tracklets.
+  vector<double> sorted_ang_rates(pairnum);
+  for(long i = 0; i < pairnum; i++) {
+    double dRA_rad = (tracklets[i].RA2 - tracklets[i].RA1) / DEGPRAD;
+    if(dRA_rad >  M_PI) dRA_rad -= 2.0l*M_PI;
+    if(dRA_rad < -M_PI) dRA_rad += 2.0l*M_PI;
+    double dDec_rad = (tracklets[i].Dec2 - tracklets[i].Dec1) / DEGPRAD;
+    double mid_dec_rad = 0.5l*(tracklets[i].Dec1 + tracklets[i].Dec2) / DEGPRAD;
+    double dt_days = image_log[tracklets[i].Img2].MJD - image_log[tracklets[i].Img1].MJD;
+    if(fabs(dt_days) < 1.0e-9l) { sorted_ang_rates[i] = 0.0l; continue; }
+    sorted_ang_rates[i] = sqrt(DSQUARE(dRA_rad*cos(mid_dec_rad)) + DSQUARE(dDec_rad)) / fabs(dt_days);
+  }
+  std::sort(sorted_ang_rates.begin(), sorted_ang_rates.end());
+
   // Begin master loop over heliocentric hypotheses
   outclust={};
   clust2det={};
   realclusternum=0;
   for(accelct=0;accelct<accelnum;accelct++) {
     if(use_hypinds_all && active_hyp_inds_all.find(accelct) == active_hyp_inds_all.end()) continue;
+    // Opt F: skip hypothesis if fewer than dbscan_npt tracklets have angular velocity
+    // consistent with a real object at this heliocentric distance (±20x Keplerian circular).
+    {
+      double omega_kepl = sqrt(GMSUN_KM3_SEC2 / (heliodist[accelct]*heliodist[accelct]*heliodist[accelct])) * SOLARDAY;
+      long n_qual = (long)(std::upper_bound(sorted_ang_rates.begin(), sorted_ang_rates.end(), omega_kepl*20.0l)
+                         - std::lower_bound(sorted_ang_rates.begin(), sorted_ang_rates.end(), omega_kepl*0.05l));
+      if(n_qual < config.dbscan_npt) continue;
+    }
     cout << "Working on hypothesis " << accelct << ": " << radhyp[accelct].HelioRad << " AU, " << radhyp[accelct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[accelct].R_dubdot << " GMsun/r^2\n";
 
     gridpoint_clusternum=0;
@@ -42002,6 +42037,21 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
     precompute_tracklet_proj_cache(image_log, tracklets, trk_cache);
   }
 
+  // Opt F: pre-compute sorted tracklet angular rates (rad/day) for hypothesis-level pruning.
+  // Computed once before the parallel region; read-only inside threads (safe).
+  vector<double> sorted_ang_rates(pairnum);
+  for(long i = 0; i < pairnum; i++) {
+    double dRA_rad = (tracklets[i].RA2 - tracklets[i].RA1) / DEGPRAD;
+    if(dRA_rad >  M_PI) dRA_rad -= 2.0l*M_PI;
+    if(dRA_rad < -M_PI) dRA_rad += 2.0l*M_PI;
+    double dDec_rad = (tracklets[i].Dec2 - tracklets[i].Dec1) / DEGPRAD;
+    double mid_dec_rad = 0.5l*(tracklets[i].Dec1 + tracklets[i].Dec2) / DEGPRAD;
+    double dt_days = image_log[tracklets[i].Img2].MJD - image_log[tracklets[i].Img1].MJD;
+    if(fabs(dt_days) < 1.0e-9l) { sorted_ang_rates[i] = 0.0l; continue; }
+    sorted_ang_rates[i] = sqrt(DSQUARE(dRA_rad*cos(mid_dec_rad)) + DSQUARE(dDec_rad)) / fabs(dt_days);
+  }
+  std::sort(sorted_ang_rates.begin(), sorted_ang_rates.end());
+
   // Begin master loop over heliocentric hypotheses
   outclust={};
   clust2det={};
@@ -42045,7 +42095,15 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
     int ithread = omp_get_thread_num();
     int nthreads = omp_get_num_threads();
     long accelct = ithread + cyclect*nthreads;
-    if(accelct<accelnum && !(use_hypinds_omp && active_hyp_inds_omp.find(accelct) == active_hyp_inds_omp.end())) {
+    // Opt F: check angular-rate feasibility before hypinds filter (O(log N) per hypothesis)
+    bool optf_ok = true;
+    if(accelct < accelnum) {
+      double okepl = sqrt(GMSUN_KM3_SEC2 / (heliodist[accelct]*heliodist[accelct]*heliodist[accelct])) * SOLARDAY;
+      optf_ok = (long)(std::upper_bound(sorted_ang_rates.begin(), sorted_ang_rates.end(), okepl*20.0l)
+                     - std::lower_bound(sorted_ang_rates.begin(), sorted_ang_rates.end(), okepl*0.05l))
+                >= config.dbscan_npt;
+    }
+    if(accelct<accelnum && optf_ok && !(use_hypinds_omp && active_hyp_inds_omp.find(accelct) == active_hyp_inds_omp.end())) {
       // Covert all tracklets into state vectors at the reference time, under
       // the assumption that the heliocentric distance hypothesis is correct.
       if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
