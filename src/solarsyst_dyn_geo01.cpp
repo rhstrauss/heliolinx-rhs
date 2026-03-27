@@ -42372,12 +42372,39 @@ int heliolinc_alg_lowmem(const vector <hlimage> &image_log, const vector <hldet>
     cout << "Loaded " << active_hyp_inds_lm.size() << " active hypothesis indices from " << config.hypinds_file << "\n";
   }
 
+  // Pre-compute hypothesis-invariant tracklet projection quantities (Opt 1 + Opt 2)
+  vector<TrackletProjCache> trk_cache_lm;
+  if(use_univar == 2) {
+    precompute_tracklet_proj_cache(image_log, tracklets, trk_cache_lm);
+  }
+
+  // Opt F: pre-compute sorted tracklet angular rates (rad/day) for hypothesis-level pruning
+  vector<double> sorted_ang_rates_lm(pairnum);
+  for(long i = 0; i < pairnum; i++) {
+    double dRA_rad = (tracklets[i].RA2 - tracklets[i].RA1) / DEGPRAD;
+    if(dRA_rad >  M_PI) dRA_rad -= 2.0l*M_PI;
+    if(dRA_rad < -M_PI) dRA_rad += 2.0l*M_PI;
+    double dDec_rad = (tracklets[i].Dec2 - tracklets[i].Dec1) / DEGPRAD;
+    double mid_dec_rad = 0.5l*(tracklets[i].Dec1 + tracklets[i].Dec2) / DEGPRAD;
+    double dt_days = image_log[tracklets[i].Img2].MJD - image_log[tracklets[i].Img1].MJD;
+    if(fabs(dt_days) < 1.0e-9l) { sorted_ang_rates_lm[i] = 0.0l; continue; }
+    sorted_ang_rates_lm[i] = sqrt(DSQUARE(dRA_rad*cos(mid_dec_rad)) + DSQUARE(dDec_rad)) / fabs(dt_days);
+  }
+  std::sort(sorted_ang_rates_lm.begin(), sorted_ang_rates_lm.end());
+
   // Begin master loop over heliocentric hypotheses
   outclust={};
   clust2det={};
   realclusternum=0;
   for(accelct=0;accelct<accelnum;accelct++) {
     if(use_hypinds_lm && active_hyp_inds_lm.find(accelct) == active_hyp_inds_lm.end()) continue;
+    // Opt F: skip hypothesis if fewer than dbscan_npt tracklets match expected angular rate
+    {
+      double omega_kepl = sqrt(GMSUN_KM3_SEC2 / (heliodist[accelct]*heliodist[accelct]*heliodist[accelct])) * SOLARDAY;
+      long n_qual = (long)(std::upper_bound(sorted_ang_rates_lm.begin(), sorted_ang_rates_lm.end(), omega_kepl*20.0l)
+                         - std::lower_bound(sorted_ang_rates_lm.begin(), sorted_ang_rates_lm.end(), omega_kepl*0.05l));
+      if(n_qual < config.dbscan_npt) continue;
+    }
     cout << "Working on hypothesis " << accelct << ": " << radhyp[accelct].HelioRad << " AU, " << radhyp[accelct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[accelct].R_dubdot << " GMsun/r^2\n";
 
     gridpoint_clusternum=0;
@@ -42395,7 +42422,8 @@ int heliolinc_alg_lowmem(const vector <hlimage> &image_log, const vector <hldet>
       // reference times, so the clustering parameter space is X1, Y1, Z1, X2, Y2, and Z2
       // Use the Kepler f and g functions for orbit propagation
       // This is faster than the universal variable formulation, but cannot handle hyperbolic
-      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
+      // Use pre-computed cache to skip redundant trig/dot-product ops (Opt 1 + Opt 2)
+      status = trk2statevec_fgfuncRR(image_log, tracklets, trk_cache_lm, heliodist[accelct], heliovel[accelct], helioacc[accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
       // Integrate to perform clustering in the parameter space of Ben Engebreth's
       // heliolinc_RR algorithm, which uses position vectors at two different
@@ -42657,6 +42685,26 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
     cout << "Loaded " << active_hyp_inds_ompl.size() << " active hypothesis indices from " << config.hypinds_file << "\n";
   }
 
+  // Pre-compute hypothesis-invariant tracklet projection quantities (Opt 1 + Opt 2)
+  vector<TrackletProjCache> trk_cache_ompl;
+  if(use_univar == 2) {
+    precompute_tracklet_proj_cache(image_log, tracklets, trk_cache_ompl);
+  }
+
+  // Opt F: pre-compute sorted tracklet angular rates (rad/day); read-only inside threads
+  vector<double> sorted_ang_rates_ompl(pairnum);
+  for(long i = 0; i < pairnum; i++) {
+    double dRA_rad = (tracklets[i].RA2 - tracklets[i].RA1) / DEGPRAD;
+    if(dRA_rad >  M_PI) dRA_rad -= 2.0l*M_PI;
+    if(dRA_rad < -M_PI) dRA_rad += 2.0l*M_PI;
+    double dDec_rad = (tracklets[i].Dec2 - tracklets[i].Dec1) / DEGPRAD;
+    double mid_dec_rad = 0.5l*(tracklets[i].Dec1 + tracklets[i].Dec2) / DEGPRAD;
+    double dt_days = image_log[tracklets[i].Img2].MJD - image_log[tracklets[i].Img1].MJD;
+    if(fabs(dt_days) < 1.0e-9l) { sorted_ang_rates_ompl[i] = 0.0l; continue; }
+    sorted_ang_rates_ompl[i] = sqrt(DSQUARE(dRA_rad*cos(mid_dec_rad)) + DSQUARE(dDec_rad)) / fabs(dt_days);
+  }
+  std::sort(sorted_ang_rates_ompl.begin(), sorted_ang_rates_ompl.end());
+
   // Parallel hypothesis loop: divide hypotheses into cycles of nt threads.
   // Each thread operates on its own output buffers; results merged serially.
   outclust_lowmem={};
@@ -42698,7 +42746,15 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
     int ithread = omp_get_thread_num();
     int nthreads = omp_get_num_threads();
     long thread_accelct = ithread + cyclect*nthreads;
-    if(thread_accelct<accelnum && !(use_hypinds_ompl && active_hyp_inds_ompl.find(thread_accelct) == active_hyp_inds_ompl.end())) {
+    // Opt F: angular-rate feasibility check (O(log N) per hypothesis, read-only on shared vector)
+    bool optf_ok_ompl = true;
+    if(thread_accelct < accelnum) {
+      double okepl_ompl = sqrt(GMSUN_KM3_SEC2 / (heliodist[thread_accelct]*heliodist[thread_accelct]*heliodist[thread_accelct])) * SOLARDAY;
+      optf_ok_ompl = (long)(std::upper_bound(sorted_ang_rates_ompl.begin(), sorted_ang_rates_ompl.end(), okepl_ompl*20.0l)
+                           - std::lower_bound(sorted_ang_rates_ompl.begin(), sorted_ang_rates_ompl.end(), okepl_ompl*0.05l))
+                     >= config.dbscan_npt;
+    }
+    if(thread_accelct<accelnum && optf_ok_ompl && !(use_hypinds_ompl && active_hyp_inds_ompl.find(thread_accelct) == active_hyp_inds_ompl.end())) {
       if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
 	thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
 	if(thread_status==1) {
@@ -42708,7 +42764,8 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
 	  cerr << "Fatal error case from trk2statevec_univar.\n";
 	}
       } else if(use_univar == 2) {
-	thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
+	// Use pre-computed cache to skip redundant trig/dot-product ops (Opt 1 + Opt 2)
+	thread_status = trk2statevec_fgfuncRR(image_log, tracklets, trk_cache_ompl, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
 	if(thread_status==1) {
 	  cerr << "FAILURE IN THREAD " << ithread << ": ";
 	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
@@ -42954,6 +43011,26 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     cout << "Loaded " << active_hyp_inds_str.size() << " active hypothesis indices from " << config.hypinds_file << "\n";
   }
 
+  // Pre-compute hypothesis-invariant tracklet projection quantities (Opt 1 + Opt 2)
+  vector<TrackletProjCache> trk_cache_str;
+  if(use_univar == 2) {
+    precompute_tracklet_proj_cache(image_log, tracklets, trk_cache_str);
+  }
+
+  // Opt F: pre-compute sorted tracklet angular rates (rad/day); read-only inside threads
+  vector<double> sorted_ang_rates_str(pairnum);
+  for(long i = 0; i < pairnum; i++) {
+    double dRA_rad = (tracklets[i].RA2 - tracklets[i].RA1) / DEGPRAD;
+    if(dRA_rad >  M_PI) dRA_rad -= 2.0l*M_PI;
+    if(dRA_rad < -M_PI) dRA_rad += 2.0l*M_PI;
+    double dDec_rad = (tracklets[i].Dec2 - tracklets[i].Dec1) / DEGPRAD;
+    double mid_dec_rad = 0.5l*(tracklets[i].Dec1 + tracklets[i].Dec2) / DEGPRAD;
+    double dt_days = image_log[tracklets[i].Img2].MJD - image_log[tracklets[i].Img1].MJD;
+    if(fabs(dt_days) < 1.0e-9l) { sorted_ang_rates_str[i] = 0.0l; continue; }
+    sorted_ang_rates_str[i] = sqrt(DSQUARE(dRA_rad*cos(mid_dec_rad)) + DSQUARE(dDec_rad)) / fabs(dt_days);
+  }
+  std::sort(sorted_ang_rates_str.begin(), sorted_ang_rates_str.end());
+
   // Shared error flag; set nonzero by any thread on fatal error
   int global_error = 0;
 
@@ -42967,6 +43044,13 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
   for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
     if(global_error) continue; // skip remaining work if a fatal error occurred
     if(use_hypinds_str && active_hyp_inds_str.find(thread_accelct) == active_hyp_inds_str.end()) continue;
+    // Opt F: skip hypothesis if fewer than dbscan_npt tracklets match expected angular rate
+    {
+      double okepl_str = sqrt(GMSUN_KM3_SEC2 / (heliodist[thread_accelct]*heliodist[thread_accelct]*heliodist[thread_accelct])) * SOLARDAY;
+      if((long)(std::upper_bound(sorted_ang_rates_str.begin(), sorted_ang_rates_str.end(), okepl_str*20.0l)
+              - std::lower_bound(sorted_ang_rates_str.begin(), sorted_ang_rates_str.end(), okepl_str*0.05l))
+         < config.dbscan_npt) continue;
+    }
 
     // --- per-thread working storage ---
     vector <point6ix2> allstatevecs;
@@ -42979,7 +43063,8 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
       thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec);
     } else if(use_univar == 2) {
-      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
+      // Use pre-computed cache to skip redundant trig/dot-product ops (Opt 1 + Opt 2)
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, trk_cache_str, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else if(use_univar == 3) {
       thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose, config.min_RA, config.max_RA, config.min_Dec, config.max_Dec, config.min_geodist_filter);
     } else {
