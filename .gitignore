@@ -32,6 +32,7 @@ src/parse_clust2det_new
 src/parse_trk2det
 src/link_purify
 src/link_planarity
+src/link_planarity_omp
 
 # the static library
 src/libheliolinx.a
