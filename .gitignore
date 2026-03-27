@@ -24,6 +24,7 @@ src/make_outim
 src/make_tracklets
 src/make_tracklets_new
 src/make_trailed_tracklets
+src/merge_det_catalogs
 src/merge_tracklet_files
 src/modsplit_hlfile
 src/parse_clust2det
