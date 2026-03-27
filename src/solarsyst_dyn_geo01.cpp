@@ -43094,8 +43094,10 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     }
 
     // Free state vectors immediately — largest intermediate allocation
+    // (shrink_to_fit removed: calling free() inside a parallel region causes
+    //  all threads to serialize on the glibc heap lock; .clear() suffices and
+    //  lets each thread reuse its existing vector capacity for the next hypothesis)
     allstatevecs.clear();
-    allstatevecs.shrink_to_fit();
 
     // --- write output files directly to disk ---
     string sumfile    = outsum_prefix    + "_" + to_string(thread_accelct) + ".txt";
@@ -43146,10 +43148,9 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     }
 
     // Free remaining per-thread allocations before picking up next hypothesis
+    // (shrink_to_fit removed for the same heap-lock reason as allstatevecs above)
     thread_outclust.clear();
-    thread_outclust.shrink_to_fit();
     thread_clust2det.clear();
-    thread_clust2det.shrink_to_fit();
 
     #pragma omp critical
     {
@@ -48030,9 +48031,6 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
   #pragma omp parallel
   { nt = omp_get_num_threads(); }
   cout << "nthreads = " << nt << "\n";
-  long thread_clustnum = inclustnum/nt;
-  while(nt*thread_clustnum < inclustnum) thread_clustnum++;
-
   {
     vector <hlclust> ov1;
     vector <vector <long>> ov2;
@@ -48095,11 +48093,12 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
     long i=0; // thread-private loop variable (shared i at function scope is a data race)
 
     int status1=0; // for Keplerian integration return codes
-    long firstclust = thread_clustnum*ithread;
-    long lastclust = thread_clustnum*(ithread+1);
-    if(lastclust>inclustnum) lastclust=inclustnum;
 
-    for(inclustct=firstclust; inclustct<lastclust; inclustct++) {
+    // Dynamic scheduling: per-cluster work varies by ~1000x (small clusters: ms,
+    // large clusters with iterative orbit-fitting: seconds). Static partition causes
+    // all threads to idle at the barrier waiting for the slowest thread.
+    #pragma omp for schedule(dynamic)
+    for(inclustct=0; inclustct<inclustnum; inclustct++) {
       onecluster = inclust[inclustct];
       obsnights = onecluster.obsnights;
       if(inclustct!=onecluster.clusternum) {
