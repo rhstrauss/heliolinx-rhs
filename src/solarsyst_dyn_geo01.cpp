@@ -2938,13 +2938,9 @@ long point6ix2_dist2(const point6ix2 &p1, const point6ix2 &p2)
   return(LSQUARE(p1.x - p2.x) + LSQUARE(p1.y - p2.y) + LSQUARE(p1.z - p2.z) + LSQUARE(p1.vx - p2.vx) + LSQUARE(p1.vy - p2.vy) + LSQUARE(p1.vz - p2.vz));
 }	 
 
-// kdrange_6i01: January 07, 2022:
-// Given a k-d tree vector kdvec created by kdtree_6i01,
-// perform a range-query about the specified point. Returns
-// a vector indexing all of the points in the input k-d tree
-// that lie within the specified range of the input coordinates.
-// Assumes that kdvec[0] is the root of the k-d tree.
-int kdrange_6i01(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint, long range, vector <long> &indexvec)
+// kdrange_6i01_impl: internal implementation shared by kdrange_6i01 and callers
+// that want to reuse a scratch buffer (checkit) across calls.
+static int kdrange_6i01_impl(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint, long range, vector <long> &indexvec, vector <long> &checkit)
 {
   long rng2 = range*range;
   int notdone=1;
@@ -2956,10 +2952,10 @@ int kdrange_6i01(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint
   int goright=0;
   long pointdiff = 0;
   long pdist2 = 0;
-  vector <long> checkit={};
+  checkit.clear();
   long checknum=0;
 
-  indexvec={}; // Wipe output vector, just to be safe.
+  indexvec.clear(); // Wipe output vector, just to be safe.
 
   while(notdone>0) {
     // Climb to the top of the k-d tree, keeping track
@@ -3045,6 +3041,18 @@ int kdrange_6i01(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint
     }
   }
   return(0);
+}
+
+// kdrange_6i01: January 07, 2022:
+// Given a k-d tree vector kdvec created by kdtree_6i01,
+// perform a range-query about the specified point. Returns
+// a vector indexing all of the points in the input k-d tree
+// that lie within the specified range of the input coordinates.
+// Assumes that kdvec[0] is the root of the k-d tree.
+int kdrange_6i01(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint, long range, vector <long> &indexvec)
+{
+  vector <long> checkit;
+  return kdrange_6i01_impl(kdvec, querypoint, range, indexvec, checkit);
 }
 
 // cluster_stats6i01: January 07, 2022:
@@ -3229,16 +3237,17 @@ int DBSCAN_6i01(vector <KD_point6ix2> &kdtree, double clustrad, int npt, double 
   vector <double> rmsvec;
   long i=0;
 
+  vector <long> kdrange_scratch;
   // Loop on points
   for(kdct=0; kdct<kdnum; kdct++) {
     if(kdtree[kdct].flag == -1) {
       // Current point has not yet been assigned.
       // Range-query current point.
       querypoint = kdtree[kdct].point;
-      queryout = {};
-      cluster = {};
-      clusterind = {};
-      kdrange_6i01(kdtree, querypoint, clustrad, queryout);
+      queryout.clear();
+      cluster.clear();
+      clusterind.clear();
+      kdrange_6i01_impl(kdtree, querypoint, clustrad, queryout, kdrange_scratch);
       if(long(queryout.size()) > kdnum) return(-1);
       // If it's alone, mark it as noise.
       if(queryout.size()<=1) {
@@ -3273,7 +3282,7 @@ int DBSCAN_6i01(vector <KD_point6ix2> &kdtree, double clustrad, int npt, double 
 	    // Range-query current cluster point.
 	    querypoint = kdtree[queryout[clustptct]].point;
 	    subquery={};
-	    kdrange_6i01(kdtree, querypoint, clustrad, subquery);
+	    kdrange_6i01_impl(kdtree, querypoint, clustrad, subquery, kdrange_scratch);
  	    if(long(subquery.size())>=npt) {
 	      // This point is a core point.
 	      kdtree[queryout[clustptct]].flag = clusternum;
@@ -3316,10 +3325,10 @@ int DBSCAN_6i01(vector <KD_point6ix2> &kdtree, double clustrad, int npt, double 
 	  }
 	}
 	// Just finished loading a cluster.
-	if(long(cluster.size())>=npt) {	  
+	if(long(cluster.size())>=npt) {
 	  // This cluster has enough points to be considered.
 	  // Calculate some cluster statistics.
-	  meanvec = rmsvec = {};
+	  meanvec.clear(); rmsvec.clear();
 	  cluster_stats6i01(cluster, intconvscale, meanvec, rmsvec);
 	  // Load cluster into oneclust
 	  oneclust = KD6i_clust(cluster.size(),clusterind,meanvec,rmsvec);
@@ -3362,16 +3371,17 @@ int KDRclust_6i01(vector <KD_point6ix2> &kdtree, double clustrad, int npt, doubl
   vector <double> meanvec;
   vector <double> rmsvec;
 
+  vector <long> kdrange_scratch;
   // Loop on points
   for(kdct=0; kdct<kdnum; kdct++) {
     if(kdtree[kdct].flag == -1) {
       // Current point has not yet been assigned.
       // Range-query current point.
       querypoint = kdtree[kdct].point;
-      queryout = {};
-      cluster = {};
-      clusterind = {};
-      kdrange_6i01(kdtree, querypoint, clustrad, queryout);
+      queryout.clear();
+      cluster.clear();
+      clusterind.clear();
+      kdrange_6i01_impl(kdtree, querypoint, clustrad, queryout, kdrange_scratch);
       if(long(queryout.size()) > kdnum) return(-1);
       if(long(queryout.size()) >= npt) {
 	// This is a core point of a new cluster.
@@ -3386,7 +3396,7 @@ int KDRclust_6i01(vector <KD_point6ix2> &kdtree, double clustrad, int npt, doubl
 	}
 	// Just finished loading a cluster.
 	// Calculate some cluster statistics.
-	meanvec = rmsvec = {};
+	meanvec.clear(); rmsvec.clear();
 	cluster_stats6i01(cluster, intconvscale, meanvec, rmsvec);
 	// Load cluster into oneclust
 	oneclust = KD6i_clust(cluster.size(),clusterind,meanvec,rmsvec);
@@ -36754,6 +36764,7 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
   double clustrad=0.0l;
   point6ix2 querypoint = point6ix2(0, 0, 0, 0, 0, 0, 0, 0);
   vector <long> queryout;
+  vector <long> kdrange_scratch;
   long kdnum,kdct,clustptct;
   kdnum=kdct=clustptct=0;
   vector <long> linkdet_temp;
@@ -36821,8 +36832,8 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
       for(kdct=0; kdct<kdnum; kdct++) {
 	// Range-query current point.
 	querypoint = kdtree[kdct].point;
-	queryout = {};
-	kdrange_6i01(kdtree, querypoint, clustrad/INTEGERIZING_SCALEFAC, queryout);
+	queryout.clear();
+	kdrange_6i01_impl(kdtree, querypoint, clustrad/INTEGERIZING_SCALEFAC, queryout, kdrange_scratch);
 	if(long(queryout.size()) > kdnum) {
 	  cerr << "ERROR: kdrange query appears to have returned more points (" << queryout.size() << ")\n";
 	  cerr << "than were in the entire input k-d tree (" << kdnum << ")\n";
