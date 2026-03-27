@@ -23,12 +23,23 @@
 //  13  known_obj  (-1 if not in source catalog)
 //  14  det_qual   (-1 if not in source catalog)
 //
+// Performance notes:
+//  - Catalogs are read in parallel (one OpenMP thread per catalog).
+//  - Each sub-catalog is sorted independently; if already time-ordered
+//    (the common case for telescope data) the sort is skipped after an
+//    O(N) is_sorted check.
+//  - The sorted sub-catalogs are merged with a min-heap k-way merge:
+//    O(N log k) rather than O(N log N) for a global re-sort.
+//  - Output is written with fprintf for minimal formatting overhead.
+//
 // Usage:
 //   merge_det_catalogs -catlist catlist_file -out output_file
 //   [-verbose verbosity_level]
 
 #include "solarsyst_dyn_geo01.h"
 #include "cmath"
+#include <queue>
+#include <tuple>
 
 #define IDCOL       1
 #define MJDCOL      2
@@ -55,11 +66,45 @@ static void show_usage()
   cerr << "  KNOWNOBJCOL 13\n  DETQUALCOL 14\n";
 }
 
+// Parse a colformat file into per-column index variables.
+// Returns number of recognised keywords found.
+static int parse_colformat(const string &colformatfile,
+                           int &idcol, int &mjdcol, int &racol, int &deccol,
+                           int &magcol, int &bandcol, int &obscodecol,
+                           int &trail_len_col, int &trail_PA_col,
+                           int &sigmag_col, int &sig_across_col,
+                           int &sig_along_col,
+                           int &known_obj_col, int &det_qual_col)
+{
+  ifstream cfstream(colformatfile);
+  if(!cfstream) return -1;
+  int colreadct = 0;
+  string stest;
+  while(!cfstream.eof() && !cfstream.fail() && !cfstream.bad()
+        && colreadct < COLS_TO_READ) {
+    cfstream >> stest;
+    if     (stest == "MJDCOL")      { cfstream >> mjdcol;        colreadct++; }
+    else if(stest == "RACOL")       { cfstream >> racol;         colreadct++; }
+    else if(stest == "DECCOL")      { cfstream >> deccol;        colreadct++; }
+    else if(stest == "MAGCOL")      { cfstream >> magcol;        colreadct++; }
+    else if(stest == "TRAILLENCOL") { cfstream >> trail_len_col; colreadct++; }
+    else if(stest == "TRAILPACOL")  { cfstream >> trail_PA_col;  colreadct++; }
+    else if(stest == "SIGMAGCOL")   { cfstream >> sigmag_col;    colreadct++; }
+    else if(stest == "SIGACROSSCOL"){ cfstream >> sig_across_col;colreadct++; }
+    else if(stest == "SIGALONGCOL") { cfstream >> sig_along_col; colreadct++; }
+    else if(stest == "IDCOL")       { cfstream >> idcol;         colreadct++; }
+    else if(stest == "BANDCOL")     { cfstream >> bandcol;       colreadct++; }
+    else if(stest == "OBSCODECOL")  { cfstream >> obscodecol;    colreadct++; }
+    else if(stest == "KNOWNOBJCOL") { cfstream >> known_obj_col; colreadct++; }
+    else if(stest == "DETQUALCOL")  { cfstream >> det_qual_col;  colreadct++; }
+  }
+  return colreadct;
+}
+
 int main(int argc, char *argv[])
 {
   string catlistfile, outfile;
   int verbose = 0;
-  int status = 0;
 
   if(argc < 5) {
     show_usage();
@@ -70,29 +115,17 @@ int main(int argc, char *argv[])
   while(i < argc) {
     if(string(argv[i]) == "-catlist" || string(argv[i]) == "--catlist" ||
        string(argv[i]) == "-cl"      || string(argv[i]) == "--cl") {
-      if(i+1 < argc) {
-        catlistfile = argv[++i];
-      } else {
-        cerr << "ERROR: -catlist requires a filename argument\n";
-        return(1);
-      }
+      if(i+1 < argc) { catlistfile = argv[++i]; }
+      else { cerr << "ERROR: -catlist requires a filename argument\n"; return(1); }
     } else if(string(argv[i]) == "-out"    || string(argv[i]) == "--out" ||
               string(argv[i]) == "-output" || string(argv[i]) == "--output" ||
               string(argv[i]) == "-o"      || string(argv[i]) == "--o") {
-      if(i+1 < argc) {
-        outfile = argv[++i];
-      } else {
-        cerr << "ERROR: -out requires a filename argument\n";
-        return(1);
-      }
+      if(i+1 < argc) { outfile = argv[++i]; }
+      else { cerr << "ERROR: -out requires a filename argument\n"; return(1); }
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "--verbose" ||
               string(argv[i]) == "-v"       || string(argv[i]) == "--v") {
-      if(i+1 < argc) {
-        verbose = stoi(argv[++i]);
-      } else {
-        cerr << "ERROR: -verbose requires an integer argument\n";
-        return(1);
-      }
+      if(i+1 < argc) { verbose = stoi(argv[++i]); }
+      else { cerr << "ERROR: -verbose requires an integer argument\n"; return(1); }
     } else {
       cerr << "WARNING: unrecognized argument " << argv[i] << " ignored\n";
     }
@@ -101,168 +134,170 @@ int main(int argc, char *argv[])
 
   if(catlistfile.empty()) {
     cerr << "ERROR: no catalog list file specified (-catlist)\n";
-    show_usage();
-    return(1);
+    show_usage(); return(1);
   }
   if(outfile.empty()) {
     cerr << "ERROR: no output file specified (-out)\n";
-    show_usage();
-    return(1);
+    show_usage(); return(1);
   }
 
   cout << "Catalog list file: " << catlistfile << "\n";
   cout << "Output file:       " << outfile << "\n";
 
   // ------------------------------------------------------------------
-  // Read the catalog list and accumulate all detections
+  // 1. Read the catlist into a vector of (catalog, colformat) pairs.
+  //    This is done upfront so we know the total count before launching
+  //    the parallel read region.
   // ------------------------------------------------------------------
-  ifstream instream1;
-  instream1.open(catlistfile);
-  if(!instream1) {
-    cerr << "ERROR: cannot open catalog list file " << catlistfile << "\n";
-    return(1);
-  }
-
-  vector<hldet> alldet;
-  string catalogfile, colformatfile;
-  long total_catalogs = 0;
-
-  while(instream1 >> catalogfile >> colformatfile) {
-    if(catalogfile.empty() || colformatfile.empty()) continue;
-
-    cout << "Reading catalog " << catalogfile
-         << " with colformat " << colformatfile << "\n";
-
-    // Set column defaults (same defaults as make_tracklets)
-    int idcol      = IDCOL;
-    int mjdcol     = MJDCOL;
-    int racol      = RACOL;
-    int deccol     = DECCOL;
-    int magcol     = MAGCOL;
-    int bandcol    = BANDCOL;
-    int obscodecol = OBSCODECOL;
-    int trail_len_col  = -1;
-    int trail_PA_col   = -1;
-    int sigmag_col     = -1;
-    int sig_across_col = -1;
-    int sig_along_col  = -1;
-    int known_obj_col  = -1;
-    int det_qual_col   = -1;
-
-    // Parse the colformat file
-    ifstream cfstream;
-    cfstream.open(colformatfile);
-    if(!cfstream) {
-      cerr << "ERROR: cannot open colformat file " << colformatfile << "\n";
+  vector<pair<string,string>> catlist;
+  {
+    ifstream instream1(catlistfile);
+    if(!instream1) {
+      cerr << "ERROR: cannot open catalog list file " << catlistfile << "\n";
       return(1);
     }
-    int colreadct = 0;
-    string stest;
-    while(!cfstream.eof() && !cfstream.fail() && !cfstream.bad()
-          && colreadct < COLS_TO_READ) {
-      cfstream >> stest;
-      if(stest == "MJDCOL")      { cfstream >> mjdcol;       colreadct++; }
-      else if(stest == "RACOL")  { cfstream >> racol;        colreadct++; }
-      else if(stest == "DECCOL") { cfstream >> deccol;       colreadct++; }
-      else if(stest == "MAGCOL") { cfstream >> magcol;       colreadct++; }
-      else if(stest == "TRAILLENCOL")  { cfstream >> trail_len_col;  colreadct++; }
-      else if(stest == "TRAILPACOL")   { cfstream >> trail_PA_col;   colreadct++; }
-      else if(stest == "SIGMAGCOL")    { cfstream >> sigmag_col;     colreadct++; }
-      else if(stest == "SIGACROSSCOL") { cfstream >> sig_across_col; colreadct++; }
-      else if(stest == "SIGALONGCOL")  { cfstream >> sig_along_col;  colreadct++; }
-      else if(stest == "IDCOL")        { cfstream >> idcol;          colreadct++; }
-      else if(stest == "BANDCOL")      { cfstream >> bandcol;        colreadct++; }
-      else if(stest == "OBSCODECOL")   { cfstream >> obscodecol;     colreadct++; }
-      else if(stest == "KNOWNOBJCOL")  { cfstream >> known_obj_col;  colreadct++; }
-      else if(stest == "DETQUALCOL")   { cfstream >> det_qual_col;   colreadct++; }
-      else {
-        if(verbose >= 1)
-          cout << "WARNING: unrecognized colformat keyword " << stest << "\n";
-      }
+    string cf, colfmt;
+    while(instream1 >> cf >> colfmt) {
+      if(!cf.empty() && !colfmt.empty())
+        catlist.push_back({cf, colfmt});
     }
-    cfstream.close();
-
-    if(verbose >= 1) {
-      cout << "  Column assignments: IDCOL=" << idcol
-           << " MJDCOL=" << mjdcol
-           << " RACOL="  << racol
-           << " DECCOL=" << deccol
-           << " MAGCOL=" << magcol
-           << " BANDCOL=" << bandcol
-           << " OBSCODECOL=" << obscodecol << "\n";
-    }
-
-    // Read detections from this catalog
-    vector<hldet> catvec;
-    status = read_detection_filemt2(catalogfile, mjdcol, racol, deccol, magcol,
-                                    idcol, bandcol, obscodecol,
-                                    trail_len_col, trail_PA_col,
-                                    sigmag_col, sig_across_col, sig_along_col,
-                                    known_obj_col, det_qual_col,
-                                    catvec, verbose, 1 /*forcerun*/);
-    if(status != 0) {
-      cerr << "ERROR: read_detection_filemt2 returned status " << status
-           << " for catalog " << catalogfile << "\n";
-      return(status);
-    }
-    cout << "  Read " << catvec.size() << " detections from " << catalogfile << "\n";
-
-    for(auto &d : catvec) alldet.push_back(d);
-    total_catalogs++;
   }
-  instream1.close();
 
-  if(total_catalogs == 0) {
+  if(catlist.empty()) {
     cerr << "ERROR: no valid catalog entries found in " << catlistfile << "\n";
     return(1);
   }
 
-  cout << "Total detections from " << total_catalogs << " catalog(s): "
-       << alldet.size() << "\n";
+  long k = (long)catlist.size();
+  cout << "Found " << k << " catalog(s) in list.\n";
 
   // ------------------------------------------------------------------
-  // Sort by MJD
+  // 2. Read each catalog in parallel (one thread per catalog).
+  //    Each thread writes into its own sub-vector; no shared state is
+  //    modified during the parallel region.
   // ------------------------------------------------------------------
-  sort(alldet.begin(), alldet.end(), early_hldet());
-  cout << "Sorted " << alldet.size() << " detections by MJD.\n";
+  vector<vector<hldet>> catvecs(k);
+  vector<int> statuses(k, 0);
 
-  if(alldet.size() > 0) {
+  #pragma omp parallel for schedule(dynamic)
+  for(long ci = 0; ci < k; ci++) {
+    int idcol=IDCOL, mjdcol=MJDCOL, racol=RACOL, deccol=DECCOL;
+    int magcol=MAGCOL, bandcol=BANDCOL, obscodecol=OBSCODECOL;
+    int trail_len_col=-1, trail_PA_col=-1, sigmag_col=-1;
+    int sig_across_col=-1, sig_along_col=-1;
+    int known_obj_col=-1, det_qual_col=-1;
+
+    int cfret = parse_colformat(catlist[ci].second,
+                                idcol, mjdcol, racol, deccol, magcol,
+                                bandcol, obscodecol,
+                                trail_len_col, trail_PA_col,
+                                sigmag_col, sig_across_col, sig_along_col,
+                                known_obj_col, det_qual_col);
+    if(cfret < 0) {
+      cerr << "ERROR: cannot open colformat file " << catlist[ci].second << "\n";
+      statuses[ci] = 1;
+      continue;
+    }
+
+    // Pass verbose=0 inside the parallel region to avoid interleaved output;
+    // forcerun=1 so missing optional fields use defaults rather than aborting.
+    int st = read_detection_filemt2(catlist[ci].first,
+                                    mjdcol, racol, deccol, magcol,
+                                    idcol, bandcol, obscodecol,
+                                    trail_len_col, trail_PA_col,
+                                    sigmag_col, sig_across_col, sig_along_col,
+                                    known_obj_col, det_qual_col,
+                                    catvecs[ci], 0 /*verbose*/, 1 /*forcerun*/);
+    statuses[ci] = st;
+  }
+
+  // Check for errors and print per-catalog counts sequentially.
+  long total = 0;
+  for(long ci = 0; ci < k; ci++) {
+    if(statuses[ci] != 0) {
+      cerr << "ERROR: failed to read catalog " << catlist[ci].first
+           << " (status=" << statuses[ci] << ")\n";
+      return(statuses[ci]);
+    }
+    cout << "  Read " << catvecs[ci].size()
+         << " detections from " << catlist[ci].first << "\n";
+    if(verbose >= 1)
+      cout << "    colformat: " << catlist[ci].second << "\n";
+    total += (long)catvecs[ci].size();
+  }
+  cout << "Total detections from " << k << " catalog(s): " << total << "\n";
+
+  // ------------------------------------------------------------------
+  // 3. Sort each sub-catalog independently (parallel over catalogs).
+  //    Telescope data is almost always already time-ordered, so the
+  //    is_sorted check avoids O(N log N) work for the common case at
+  //    the cost of a single O(N) pass.
+  // ------------------------------------------------------------------
+  #pragma omp parallel for schedule(dynamic)
+  for(long ci = 0; ci < k; ci++) {
+    if(!is_sorted(catvecs[ci].begin(), catvecs[ci].end(), early_hldet()))
+      sort(catvecs[ci].begin(), catvecs[ci].end(), early_hldet());
+  }
+
+  // ------------------------------------------------------------------
+  // 4. K-way merge using a min-heap.
+  //    Complexity: O(N log k) — far better than O(N log N) for a
+  //    global re-sort when each sub-catalog is already sorted.
+  //    Elements are std::moved out of the sub-vectors to avoid copying
+  //    string members (idstring / band / obscode).
+  // ------------------------------------------------------------------
+  vector<hldet> alldet;
+  alldet.reserve(total);
+
+  // Heap element: (MJD, catalog_index, position_within_catalog)
+  using PQElem = tuple<double, long, long>;
+  priority_queue<PQElem, vector<PQElem>, greater<PQElem>> pq;
+
+  vector<long> pos(k, 0);
+  for(long ci = 0; ci < k; ci++) {
+    if(!catvecs[ci].empty())
+      pq.push(make_tuple(catvecs[ci][0].MJD, ci, 0L));
+  }
+
+  while(!pq.empty()) {
+    double mjd; long ci, di;
+    tie(mjd, ci, di) = pq.top(); pq.pop();
+    alldet.push_back(std::move(catvecs[ci][di]));
+    long next = di + 1;
+    if(next < (long)catvecs[ci].size())
+      pq.push(make_tuple(catvecs[ci][next].MJD, ci, next));
+  }
+
+  if(!alldet.empty()) {
     cout << "MJD range: " << fixed << setprecision(6)
          << alldet.front().MJD << " to " << alldet.back().MJD << "\n";
   }
 
   // ------------------------------------------------------------------
-  // Write merged output catalog
+  // 5. Write merged output catalog.
+  //    FILE* + fprintf is substantially faster than ofstream with
+  //    repeated setprecision/fixed state changes.
   // ------------------------------------------------------------------
-  ofstream outstream1;
-  outstream1.open(outfile);
-  if(!outstream1) {
+  FILE *fp = fopen(outfile.c_str(), "w");
+  if(!fp) {
     cerr << "ERROR: cannot open output file " << outfile << "\n";
     return(1);
   }
 
-  outstream1 << "#ID,MJD,RA,Dec,Mag,Band,ObsCode,"
-             << "trail_len,trail_PA,sigmag,sig_across,sig_along,"
-             << "known_obj,det_qual\n";
+  fprintf(fp, "#ID,MJD,RA,Dec,Mag,Band,ObsCode,"
+              "trail_len,trail_PA,sigmag,sig_across,sig_along,"
+              "known_obj,det_qual\n");
 
-  for(long j = 0; j < long(alldet.size()); j++) {
+  for(long j = 0; j < (long)alldet.size(); j++) {
     const hldet &d = alldet[j];
-    outstream1 << d.idstring << ",";
-    outstream1 << fixed << setprecision(7) << d.MJD << ",";
-    outstream1 << fixed << setprecision(7) << d.RA  << ",";
-    outstream1 << fixed << setprecision(7) << d.Dec << ",";
-    outstream1 << fixed << setprecision(4) << d.mag  << ",";
-    outstream1 << d.band << ",";
-    outstream1 << d.obscode << ",";
-    outstream1 << fixed << setprecision(2) << d.trail_len << ",";
-    outstream1 << fixed << setprecision(2) << d.trail_PA  << ",";
-    outstream1 << fixed << setprecision(4) << d.sigmag     << ",";
-    outstream1 << fixed << setprecision(3) << d.sig_across << ",";
-    outstream1 << fixed << setprecision(3) << d.sig_along  << ",";
-    outstream1 << d.known_obj << ",";
-    outstream1 << d.det_qual  << "\n";
+    fprintf(fp, "%s,%.7f,%.7f,%.7f,%.4f,%s,%s,%.2f,%.2f,%.4f,%.3f,%.3f,%ld,%ld\n",
+            d.idstring, d.MJD, d.RA, d.Dec, (double)d.mag,
+            d.band, d.obscode,
+            (double)d.trail_len, (double)d.trail_PA,
+            (double)d.sigmag, (double)d.sig_across, (double)d.sig_along,
+            d.known_obj, d.det_qual);
   }
-  outstream1.close();
+  fclose(fp);
 
   cout << "Wrote " << alldet.size() << " detections to " << outfile << "\n";
   cout << "Output colformat for use with make_tracklets:\n";
