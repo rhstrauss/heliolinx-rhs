@@ -2698,188 +2698,6 @@ point6dx2 conv_6i_to_6d(point6ix2 p1, double scale)
   return(p2);
 }
 
-long medind_6ix2(const vector <point6ix2> &pointvec, int dim)
-{
-  vector <point6ix2> pvec = pointvec; //Mutable copy of immutable input vector
-  for(long unsigned int i=0; i<pvec.size(); i++) pvec[i].i1=i; //Redefine indices
-  long medpt = pvec.size()/2; // Central point of vector (it will be off by one half
-                              // for a vector with even length, but we don't care).
-  if(dim%6 == 1) sort(pvec.begin(), pvec.end(), lower_point6ix2_x()); // Sort vector by x
-  else if(dim%6 == 2) sort(pvec.begin(), pvec.end(), lower_point6ix2_y()); // Sort vector by y
-  else if(dim%6 == 3) sort(pvec.begin(), pvec.end(), lower_point6ix2_z()); // Sort vector by z
-  else if(dim%6 == 4) sort(pvec.begin(), pvec.end(), lower_point6ix2_vx()); // Sort vector by vx
-  else if(dim%6 == 5) sort(pvec.begin(), pvec.end(), lower_point6ix2_vy()); // Sort vector by vy
-  else if(dim%6 == 0) sort(pvec.begin(), pvec.end(), lower_point6ix2_vz()); // Sort vector by vz
-  else {
-    cerr << "ERROR: medind_6ix2 received invalid dimension " << dim << "\n";
-    return(-1);
-  }
-  return(pvec[medpt].i1); // Output the index of the median point in
-                             // the original, unsorted input vector.
-}
-
-// splitix2: January 07, 2022:
-// Given a vector of type point6ix2, split it into two halves,
-// a left half with all the points lower than or equal to a specified
-// split point along the chosen dimension (use dim = 1, 2, 3, 4, 5, or 6
-// to split along x, y, z, vx, vy, or vz respectively).
-int splitix2(const vector <point6ix2> &pointvec, int dim, long unsigned int splitpoint, vector <point6ix2> &left, vector <point6ix2> &right)
-{
-  long unsigned int i=0;
-  int splitval = 0;
-
-  if(dim%6==1) {
-    // split on x
-    splitval = pointvec[splitpoint].x;
-    for(i=0 ; i<pointvec.size(); i++) {
-      if(i!=splitpoint && pointvec[i].x<=splitval) {
-	left.push_back(pointvec[i]);
-      } else if (i!=splitpoint) {
-	right.push_back(pointvec[i]);
-      }
-    }
-  } else if(dim%6==2) {
-    // split on y
-    splitval = pointvec[splitpoint].y;
-    for(i=0 ; i<pointvec.size(); i++) {
-      if(i!=splitpoint && pointvec[i].y<=splitval) {
-	left.push_back(pointvec[i]);
-      } else if (i!=splitpoint) {
-	right.push_back(pointvec[i]);
-      }
-    }
-  } else if(dim%6==3) {
-    // split on z
-    splitval = pointvec[splitpoint].z;
-    for(i=0 ; i<pointvec.size(); i++) {
-      if(i!=splitpoint && pointvec[i].z<=splitval) {
-	left.push_back(pointvec[i]);
-      } else if (i!=splitpoint) {
-	right.push_back(pointvec[i]);
-      }
-    }
-  } else if(dim%6==4) {
-    // split on vx
-    splitval = pointvec[splitpoint].vx;
-    for(i=0 ; i<pointvec.size(); i++) {
-      if(i!=splitpoint && pointvec[i].vx<=splitval) {
-	left.push_back(pointvec[i]);
-      } else if (i!=splitpoint) {
-	right.push_back(pointvec[i]);
-      }
-    }
-  } else if(dim%6==5) {
-    // split on vy
-    splitval = pointvec[splitpoint].vy;
-    for(i=0 ; i<pointvec.size(); i++) {
-      if(i!=splitpoint && pointvec[i].vy<=splitval) {
-	left.push_back(pointvec[i]);
-      } else if (i!=splitpoint) {
-	right.push_back(pointvec[i]);
-      }
-    }
-  } else if(dim%6==0) {
-    // split on vz
-    splitval = pointvec[splitpoint].vz;
-    for(i=0 ; i<pointvec.size(); i++) {
-      if(i!=splitpoint && pointvec[i].vz<=splitval) {
-	left.push_back(pointvec[i]);
-      } else if (i!=splitpoint) {
-	right.push_back(pointvec[i]);
-      }
-    }
-  } else {
-      cerr << "ERROR: splitix2 asked to split on undefined dimension " << dim << "\n";
-      return(1);
-  } 
-  return(0);
-}
-
-// kdtree_6i01: January 05, 2022
-// Given an input root point, presumed to have null
-// right and left branches, load the branches and then
-// call kdtree_6i01 on them recursively.
-int kdtree_6i01(const vector <point6ix2> &invec, int dim, long unsigned int splitpoint, long unsigned int kdroot, vector <KD_point6ix2> &kdvec)
-{
-  int lmed=0;
-  int rmed=0;
-  int kdct = kdvec.size()-1;
-  long leftrootkd=-1;
-  long rightrootkd=-1;
-  point6ix2 point0 = point6ix2(0,0,0,0,0,0,0,0);
-  KD_point6ix2 lp = KD_point6ix2(point0,-1,-1,0,-1);
-  KD_point6ix2 rp = KD_point6ix2(point0,-1,-1,0,-1);
-  vector <point6ix2> leftvec = {};
-  vector <point6ix2> rightvec = {};
-
-  // Basic outline: split the input vector into a left and a right
-  // half, where the left half is below (or level with) splitpoint
-  // in the dimension specified by dim, and the right half is above
-  // splitpoint. Find the median of the left and right vectors,
-  // and make the left and right branches from kdroot point to
-  // these medians. Then call kdtree_6i01 itself recursively on
-  // each of these median points, to peform a new split along a
-  // different dimension.
-  splitix2(invec,dim,splitpoint,leftvec,rightvec);
-
-  dim+=1;
-  while(dim>6) dim-=6;
-
-  if(leftvec.size()==1) {
-    // Left branch is just a single leaf
-    lp = KD_point6ix2(leftvec[0],-1,-1,dim,-1); // Define new point as a leaf: branches point nowhere
-    kdvec.push_back(lp); // Add this new point to the KD tree.
-    kdct++; // Keep track of how many point are in the tree
-    kdvec[kdroot].left = kdct; // Stick the new point on the left branch of the input root.
-  } else if(leftvec.size()<=0) {
-    // There is no left branch
-    kdvec[kdroot].left = -1;
-  }
-  if(rightvec.size()==1) {
-    // Right branch is just a single leaf
-    rp = KD_point6ix2(rightvec[0],-1,-1,dim,-1);
-    kdvec.push_back(rp);
-    kdct++;
-    kdvec[kdroot].right = kdct;
-  } else if(rightvec.size()<=0) {
-    // There is no right branch
-    kdvec[kdroot].right = -1;
-  }
-   
- if(leftvec.size()>1) {
-    lmed = medind_6ix2(leftvec,dim);
-    lp = KD_point6ix2(leftvec[lmed],-1,-1,dim,-1);
-    kdvec.push_back(lp);
-    kdct++;
-    kdvec[kdroot].left = kdct;
-    leftrootkd = kdct;
- }
- 
-  if(rightvec.size()>1) {
-    rmed = medind_6ix2(rightvec,dim);
-    rp = KD_point6ix2(rightvec[rmed],-1,-1,dim,-1);
-    kdvec.push_back(rp);
-    kdct++;
-    kdvec[kdroot].right = kdct;
-    rightrootkd = kdct;
-  }
-  // I moved these down out of the above loops, because I thought
-  // that otherwise, a bunch of stuff might get pushed down by the
-  // left loop that the right loop didn't know about.
-  if(leftvec.size()>1 && leftrootkd>=0) kdtree_6i01(leftvec,dim,lmed,leftrootkd,kdvec);
-  else if(leftvec.size()>1 && leftrootkd<0)
-    {
-      cerr << "Error, kdtree_6i01 finds leftroot less than zero with leftvec.size() = " << leftvec.size() << "\n";
-    }
-  if(rightvec.size()>1 && rightrootkd>=0) kdtree_6i01(rightvec,dim,rmed,rightrootkd,kdvec);
-  else if(rightvec.size()>1 && rightrootkd<0)
-    {
-      cerr << "Error, kdtree_6i01 finds rightroot less than zero with rightvec.size() = " << rightvec.size() << "\n";
-    }
-
-  return(0);
-}
-
 // kdtree_6i01_inner: internal recursive helper for kdtree_6i01_fast.
 // Builds a subtree for pts[lo..hi-1] splitting on `dim`, appending nodes
 // to kdvec in pre-order.  Returns the kdvec index of the subtree root,
@@ -33178,122 +32996,72 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
     cerr << "not match the number of input images!\n";
     return(2);
   }
-  for(pairct=0; pairct<pairnum; pairct++) {
-    badpoint=0;
-    // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
-    if(min_RA > 0.0 || max_RA < 360.0) {
-      double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
-      if(dra > 180.0) dra -= 360.0;
-      if(dra < -180.0) dra += 360.0;
-      double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
-      if(mid_RA < 0.0) mid_RA += 360.0;
-      if(mid_RA >= 360.0) mid_RA -= 360.0;
-      bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
-                                        : (mid_RA >= min_RA || mid_RA <= max_RA);
-      if(!in_zone) continue;
-    }
-    // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
-    if(min_Dec > -90.0 || max_Dec < 90.0) {
-      double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
-      if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
-    }
-    // Obtain indices to the image_log and heliocentric distance vectors.
-    i1=tracklets[pairct].Img1;
-    i2=tracklets[pairct].Img2;
-    // Project the first point
-    RA = tracklets[pairct].RA1;
-    Dec = tracklets[pairct].Dec1;
-    celestial_to_stateunit(RA,Dec,unitbary);
-    observerpos1 = point3d(image_log[i1].X,image_log[i1].Y,image_log[i1].Z);
-    targposvec1={};
-    deltavec1={};
-    status1 = helioproj02(unitbary,observerpos1, heliodistvec[i1], deltavec1, targposvec1);
-    RA = tracklets[pairct].RA2;
-    Dec = tracklets[pairct].Dec2;
-    celestial_to_stateunit(RA,Dec,unitbary);
-    observerpos2 = point3d(image_log[i2].X,image_log[i2].Y,image_log[i2].Z);
-    targposvec2={};
-    deltavec2={};
-    status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
-    if(status1 > 0 && status2 > 0 && badpoint==0) {
-      // Calculate time difference between the observations
-      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
-      // Did helioproj find two solutions in both cases, or only one?
-      num_dist_solutions = status1;
-      if(num_dist_solutions > status2) num_dist_solutions = status2;
-      // Loop over solutions (num_dist_solutions can only be 1 or 2).
-      for(solnct=0; solnct<num_dist_solutions; solnct++) {
-	// Calculate the object's v_inf relative to the sun.
-	targpos1 = targposvec1[solnct];
-	targpos2 = targposvec2[solnct];
-	  
-	targvel1.x = (targpos2.x - targpos1.x)/timediff;
-	targvel1.y = (targpos2.y - targpos1.y)/timediff;
-	targvel1.z = (targpos2.z - targpos1.z)/timediff;
-
-	targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
-	targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
-	targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
-
-	E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
-	if(E>0.0l) v_inf = sqrt(2.0l*E);
-	else if(!isnormal(E)) v_inf=0.0l;
-	else v_inf = -sqrt(-2.0l*E); // This is a bit weird, but we allow the user to
-	                             // set a negative v_inf, if desired, to rule out
-	                             // objects that are barely bound to the sun.
-	if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
-
-	// Begin new stuff added to eliminate 'globs'
-	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
-	// of detections that arise when the hypothetical heliocentric distance at a time when
-	// many observations are acquired is extremely close to, but slightly greater than,
-	// the heliocentric distance of the observer. Then detections over a large area of sky
-	// wind up with projected 3-D positions in an extremely small volume -- and furthermore,
-	// they all have similar velocities because the very small geocentric distance causes
-	// the inferred velocities to be dominated by the observer's motion and the heliocentric
-	// hypothesis, with only a negligible contribution from the on-sky angular velocity.
-	glob_warning=0;
-	if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
-	  // New-start
-	  // Load target positions
+  {
+    int ntp = omp_in_parallel() ? 1 : omp_get_max_threads();
+    vector<vector<point6ix2>> thr_svecs(ntp);
+    #pragma omp parallel for schedule(dynamic,64) if(!omp_in_parallel()) \
+      private(badpoint, status1, status2, num_dist_solutions, solnct, mjdavg, \
+              RA, Dec, i1, i2, targposvec1, targposvec2, \
+              glob_warning, deltavec1, deltavec2, absvelocity, impactpar, timediff, E, v_inf)
+    for(pairct=0; pairct<pairnum; pairct++) {
+      int tid = omp_get_thread_num();
+      badpoint=0;
+      point6dx2 statevec1(0l,0l,0l,0l,0l,0l,0,0);
+      point6ix2 stateveci(0,0,0,0,0,0,0,0);
+      point3d observerpos1(0l,0l,0l);
+      point3d observerpos2(0l,0l,0l);
+      point3d targpos1(0l,0l,0l);
+      point3d targpos2(0l,0l,0l);
+      point3d targvel1(0l,0l,0l);
+      point3d unitbary(0l,0l,0l);
+      double RA_local, Dec_local;
+      // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
+      if(min_RA > 0.0 || max_RA < 360.0) {
+        double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+        if(dra > 180.0) dra -= 360.0;
+        if(dra < -180.0) dra += 360.0;
+        double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
+        if(mid_RA < 0.0) mid_RA += 360.0;
+        if(mid_RA >= 360.0) mid_RA -= 360.0;
+        bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
+                                          : (mid_RA >= min_RA || mid_RA <= max_RA);
+        if(!in_zone) continue;
+      }
+      // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
+      if(min_Dec > -90.0 || max_Dec < 90.0) {
+        double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
+        if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
+      }
+      // Obtain indices to the image_log and heliocentric distance vectors.
+      i1=tracklets[pairct].Img1;
+      i2=tracklets[pairct].Img2;
+      // Project the first point
+      RA_local = tracklets[pairct].RA1;
+      Dec_local = tracklets[pairct].Dec1;
+      celestial_to_stateunit(RA_local,Dec_local,unitbary);
+      observerpos1 = point3d(image_log[i1].X,image_log[i1].Y,image_log[i1].Z);
+      targposvec1={};
+      deltavec1={};
+      status1 = helioproj02(unitbary,observerpos1, heliodistvec[i1], deltavec1, targposvec1);
+      RA_local = tracklets[pairct].RA2;
+      Dec_local = tracklets[pairct].Dec2;
+      celestial_to_stateunit(RA_local,Dec_local,unitbary);
+      observerpos2 = point3d(image_log[i2].X,image_log[i2].Y,image_log[i2].Z);
+      targposvec2={};
+      deltavec2={};
+      status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
+      if(status1 > 0 && status2 > 0 && badpoint==0) {
+        // Calculate time difference between the observations
+        timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
+        // Did helioproj find two solutions in both cases, or only one?
+        num_dist_solutions = status1;
+        if(num_dist_solutions > status2) num_dist_solutions = status2;
+        // Loop over solutions (num_dist_solutions can only be 1 or 2).
+        for(solnct=0; solnct<num_dist_solutions; solnct++) {
+	  // Calculate the object's v_inf relative to the sun.
 	  targpos1 = targposvec1[solnct];
 	  targpos2 = targposvec2[solnct];
-	  // Calculate positions relative to observer
-	  targpos1.x -= observerpos1.x;
-	  targpos1.y -= observerpos1.y;
-	  targpos1.z -= observerpos1.z;
-	    
-	  targpos2.x -= observerpos2.x;
-	  targpos2.y -= observerpos2.y;
-	  targpos2.z -= observerpos2.z;
-	    
-	  // Calculate velocity relative to observer
-	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
-	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
-	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
-   
-	  // Calculate impact parameter (past or future).
-	  absvelocity = vecabs3d(targvel1);
-	  impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
-	  // Effectively, we've projected targpos1 onto the velocity
-	  // vector, and impactpar temporarily holds the magnitude of this projection.
-	  // Subtract off the projection of the distance onto the velocity unit vector
-	  targpos1.x -= impactpar*targvel1.x/absvelocity;
-	  targpos1.y -= impactpar*targvel1.y/absvelocity;
-	  targpos1.z -= impactpar*targvel1.z/absvelocity;
-	  // Now targpos1 is the impact parameter vector at projected closest approach.
-	  impactpar  = vecabs3d(targpos1); // Now impactpar is really the impact parameter
-	  if(impactpar<=minimpactpar) {
-	    // The hypothesis implies the object already passed within minimpactpar km of the Earth
-	    // in the likely case that minimpactpar has been set to imply an actual impact,
-	    // it's not our problem anymore.
-	    glob_warning=1;
-	  }
-	}
-	if(!glob_warning) {
-	  targpos1 = targposvec1[solnct];
-	  targpos2 = targposvec2[solnct];
-	  
+
 	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
 	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
 	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
@@ -33301,27 +33069,97 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
 	  targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
 	  targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
 	  targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
-      
-	  // Integrate orbit to the reference times.
-	  mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
-	  vector <point3d> targposvec;
-	  vector <point3d> targvelvec;
-	  status1 = Kepler_fg_func_vec(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdvec,targposvec,targvelvec);
-	  if(status1 == 0 && badpoint==0) {
-	    statevec1 = point6dx2(targposvec[0].x,targposvec[0].y,targposvec[0].z,targposvec[1].x,targposvec[1].y,targposvec[1].z,pairct,0);
-	    stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
-	    allstatevecs.push_back(stateveci);
-	  } else {
-	    // Kepler integration encountered unphysical situation.
-	    continue;
+
+	  E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
+	  if(E>0.0l) v_inf = sqrt(2.0l*E);
+	  else if(!isnormal(E)) v_inf=0.0l;
+	  else v_inf = -sqrt(-2.0l*E); // This is a bit weird, but we allow the user to
+	                               // set a negative v_inf, if desired, to rule out
+	                               // objects that are barely bound to the sun.
+	  if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
+
+	  // Begin new stuff added to eliminate 'globs'
+	  // These are spurious linkages of unreasonably large numbers (typically tens of thousands)
+	  // of detections that arise when the hypothetical heliocentric distance at a time when
+	  // many observations are acquired is extremely close to, but slightly greater than,
+	  // the heliocentric distance of the observer. Then detections over a large area of sky
+	  // wind up with projected 3-D positions in an extremely small volume -- and furthermore,
+	  // they all have similar velocities because the very small geocentric distance causes
+	  // the inferred velocities to be dominated by the observer's motion and the heliocentric
+	  // hypothesis, with only a negligible contribution from the on-sky angular velocity.
+	  glob_warning=0;
+	  if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
+	    // New-start
+	    // Load target positions
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+	    // Calculate positions relative to observer
+	    targpos1.x -= observerpos1.x;
+	    targpos1.y -= observerpos1.y;
+	    targpos1.z -= observerpos1.z;
+
+	    targpos2.x -= observerpos2.x;
+	    targpos2.y -= observerpos2.y;
+	    targpos2.z -= observerpos2.z;
+
+	    // Calculate velocity relative to observer
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    // Calculate impact parameter (past or future).
+	    absvelocity = vecabs3d(targvel1);
+	    impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
+	    // Effectively, we've projected targpos1 onto the velocity
+	    // vector, and impactpar temporarily holds the magnitude of this projection.
+	    // Subtract off the projection of the distance onto the velocity unit vector
+	    targpos1.x -= impactpar*targvel1.x/absvelocity;
+	    targpos1.y -= impactpar*targvel1.y/absvelocity;
+	    targpos1.z -= impactpar*targvel1.z/absvelocity;
+	    // Now targpos1 is the impact parameter vector at projected closest approach.
+	    impactpar  = vecabs3d(targpos1); // Now impactpar is really the impact parameter
+	    if(impactpar<=minimpactpar) {
+	      // The hypothesis implies the object already passed within minimpactpar km of the Earth
+	      // in the likely case that minimpactpar has been set to imply an actual impact,
+	      // it's not our problem anymore.
+	      glob_warning=1;
+	    }
 	  }
-	}
+	  if(!glob_warning) {
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	    targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	    targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	    // Integrate orbit to the reference times.
+	    mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
+	    vector <point3d> targposvec;
+	    vector <point3d> targvelvec;
+	    status1 = Kepler_fg_func_vec(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdvec,targposvec,targvelvec);
+	    if(status1 == 0 && badpoint==0) {
+	      statevec1 = point6dx2(targposvec[0].x,targposvec[0].y,targposvec[0].z,targposvec[1].x,targposvec[1].y,targposvec[1].z,pairct,0);
+	      stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
+	      thr_svecs[tid].push_back(stateveci);
+	    } else {
+	      // Kepler integration encountered unphysical situation.
+	      continue;
+	    }
+	  }
+        }
+      } else {
+        badpoint=1;
+        // Heliocentric projection found no physical solution.
+        continue;
       }
-    } else {
-      badpoint=1;
-      // Heliocentric projection found no physical solution.
-      continue;
     }
+    for(int t=0; t<ntp; t++)
+      allstatevecs.insert(allstatevecs.end(), thr_svecs[t].begin(), thr_svecs[t].end());
   }
   return(0);
 }
@@ -33930,122 +33768,72 @@ int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <track
     cerr << "not match the number of input images!\n";
     return(2);
   }
-  for(pairct=0; pairct<pairnum; pairct++) {
-    badpoint=0;
-    // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
-    if(min_RA > 0.0 || max_RA < 360.0) {
-      double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
-      if(dra > 180.0) dra -= 360.0;
-      if(dra < -180.0) dra += 360.0;
-      double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
-      if(mid_RA < 0.0) mid_RA += 360.0;
-      if(mid_RA >= 360.0) mid_RA -= 360.0;
-      bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
-                                        : (mid_RA >= min_RA || mid_RA <= max_RA);
-      if(!in_zone) continue;
-    }
-    // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
-    if(min_Dec > -90.0 || max_Dec < 90.0) {
-      double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
-      if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
-    }
-    // Obtain indices to the image_log and heliocentric distance vectors.
-    i1=tracklets[pairct].Img1;
-    i2=tracklets[pairct].Img2;
-    // Project the first point
-    RA = tracklets[pairct].RA1;
-    Dec = tracklets[pairct].Dec1;
-    celestial_to_stateunit(RA,Dec,unitbary);
-    observerpos1 = point3d(image_log[i1].X,image_log[i1].Y,image_log[i1].Z);
-    targposvec1={};
-    deltavec1={};
-    status1 = helioproj02(unitbary,observerpos1, heliodistvec[i1], deltavec1, targposvec1);
-    RA = tracklets[pairct].RA2;
-    Dec = tracklets[pairct].Dec2;
-    celestial_to_stateunit(RA,Dec,unitbary);
-    observerpos2 = point3d(image_log[i2].X,image_log[i2].Y,image_log[i2].Z);
-    targposvec2={};
-    deltavec2={};
-    status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
-    if(status1 > 0 && status2 > 0 && badpoint==0) {
-      // Calculate time difference between the observations
-      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
-      // Did helioproj find two solutions in both cases, or only one?
-      num_dist_solutions = status1;
-      if(num_dist_solutions > status2) num_dist_solutions = status2;
-      // Loop over solutions (num_dist_solutions can only be 1 or 2).
-      for(solnct=0; solnct<num_dist_solutions; solnct++) {
-	// Calculate the object's v_inf relative to the sun.
-	targpos1 = targposvec1[solnct];
-	targpos2 = targposvec2[solnct];
-	  
-	targvel1.x = (targpos2.x - targpos1.x)/timediff;
-	targvel1.y = (targpos2.y - targpos1.y)/timediff;
-	targvel1.z = (targpos2.z - targpos1.z)/timediff;
-
-	targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
-	targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
-	targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
-
-	E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
-	if(E>0.0l) v_inf = sqrt(2.0l*E);
-	else if(!isnormal(E)) v_inf=0.0l;
-	else v_inf = -sqrt(-2.0l*E); // This is a bit weird, but we allow the user to
-	                             // set a negative v_inf, if desired, to rule out
-	                             // objects that are barely bound to the sun.
-	if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
-      
-	// Begin new stuff added to eliminate 'globs'
-	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
-	// of detections that arise when the hypothetical heliocentric distance at a time when
-	// many observations are acquired is extremely close to, but slightly greater than,
-	// the heliocentric distance of the observer. Then detections over a large area of sky
-	// wind up with projected 3-D positions in an extremely small volume -- and furthermore,
-	// they all have similar velocities because the very small geocentric distance causes
-	// the inferred velocities to be dominated by the observer's motion and the heliocentric
-	// hypothesis, with only a negligible contribution from the on-sky angular velocity.
-	glob_warning=0;
-	if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
-	  // New-start
-	  // Load target positions
+  {
+    int ntp = omp_in_parallel() ? 1 : omp_get_max_threads();
+    vector<vector<point6ix2>> thr_svecs(ntp);
+    #pragma omp parallel for schedule(dynamic,64) if(!omp_in_parallel()) \
+      private(badpoint, status1, status2, num_dist_solutions, solnct, mjdavg, \
+              i1, i2, targposvec1, targposvec2, \
+              glob_warning, deltavec1, deltavec2, absvelocity, impactpar, timediff, E, v_inf)
+    for(pairct=0; pairct<pairnum; pairct++) {
+      int tid = omp_get_thread_num();
+      badpoint=0;
+      point6dx2 statevec1(0l,0l,0l,0l,0l,0l,0,0);
+      point6ix2 stateveci(0,0,0,0,0,0,0,0);
+      point3d observerpos1(0l,0l,0l);
+      point3d observerpos2(0l,0l,0l);
+      point3d targpos1(0l,0l,0l);
+      point3d targpos2(0l,0l,0l);
+      point3d targvel1(0l,0l,0l);
+      point3d unitbary(0l,0l,0l);
+      double RA_local, Dec_local;
+      // Sky-zone RA filter: skip tracklets outside [min_RA, max_RA] (Tier 3, March 2026)
+      if(min_RA > 0.0 || max_RA < 360.0) {
+        double dra = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+        if(dra > 180.0) dra -= 360.0;
+        if(dra < -180.0) dra += 360.0;
+        double mid_RA = tracklets[pairct].RA1 + 0.5*dra;
+        if(mid_RA < 0.0) mid_RA += 360.0;
+        if(mid_RA >= 360.0) mid_RA -= 360.0;
+        bool in_zone = (min_RA <= max_RA) ? (mid_RA >= min_RA && mid_RA <= max_RA)
+                                          : (mid_RA >= min_RA || mid_RA <= max_RA);
+        if(!in_zone) continue;
+      }
+      // Sky-zone Dec filter: skip tracklets outside [min_Dec, max_Dec] (Tier 4, March 2026)
+      if(min_Dec > -90.0 || max_Dec < 90.0) {
+        double mid_Dec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2);
+        if(mid_Dec < min_Dec || mid_Dec > max_Dec) continue;
+      }
+      // Obtain indices to the image_log and heliocentric distance vectors.
+      i1=tracklets[pairct].Img1;
+      i2=tracklets[pairct].Img2;
+      // Project the first point
+      RA_local = tracklets[pairct].RA1;
+      Dec_local = tracklets[pairct].Dec1;
+      celestial_to_stateunit(RA_local,Dec_local,unitbary);
+      observerpos1 = point3d(image_log[i1].X,image_log[i1].Y,image_log[i1].Z);
+      targposvec1={};
+      deltavec1={};
+      status1 = helioproj02(unitbary,observerpos1, heliodistvec[i1], deltavec1, targposvec1);
+      RA_local = tracklets[pairct].RA2;
+      Dec_local = tracklets[pairct].Dec2;
+      celestial_to_stateunit(RA_local,Dec_local,unitbary);
+      observerpos2 = point3d(image_log[i2].X,image_log[i2].Y,image_log[i2].Z);
+      targposvec2={};
+      deltavec2={};
+      status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
+      if(status1 > 0 && status2 > 0 && badpoint==0) {
+        // Calculate time difference between the observations
+        timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
+        // Did helioproj find two solutions in both cases, or only one?
+        num_dist_solutions = status1;
+        if(num_dist_solutions > status2) num_dist_solutions = status2;
+        // Loop over solutions (num_dist_solutions can only be 1 or 2).
+        for(solnct=0; solnct<num_dist_solutions; solnct++) {
+	  // Calculate the object's v_inf relative to the sun.
 	  targpos1 = targposvec1[solnct];
 	  targpos2 = targposvec2[solnct];
-	  // Calculate positions relative to observer
-	  targpos1.x -= observerpos1.x;
-	  targpos1.y -= observerpos1.y;
-	  targpos1.z -= observerpos1.z;
-	    
-	  targpos2.x -= observerpos2.x;
-	  targpos2.y -= observerpos2.y;
-	  targpos2.z -= observerpos2.z;
-	    
-	  // Calculate velocity relative to observer
-	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
-	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
-	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
-   
-	  // Calculate impact parameter (past or future).
-	  absvelocity = vecabs3d(targvel1);
-	  impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
-	  // Effectively, we've projected targpos1 onto the velocity
-	  // vector, and impactpar temporarily holds the magnitude of this projection.
-	  // Subtract off the projection of the distance onto the velocity unit vector
-	  targpos1.x -= impactpar*targvel1.x/absvelocity;
-	  targpos1.y -= impactpar*targvel1.y/absvelocity;
-	  targpos1.z -= impactpar*targvel1.z/absvelocity;
-	  // Now targpos1 is the impact parameter vector at projected closest approach.
-	  impactpar  = vecabs3d(targpos1); // Now impactpar is really the impact parameter
-	  if(impactpar<=minimpactpar) {
-	    // The hypothesis implies the object already passed with minimpactpar km of the Earth
-	    // in the likely case that minimpactpar has been set to imply an actual impact,
-	    // it's not our problem anymore.
-	    glob_warning=1;
-	  }
-	}
-	if(!glob_warning) {
-	  targpos1 = targposvec1[solnct];
-	  targpos2 = targposvec2[solnct];
-	  
+
 	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
 	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
 	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
@@ -34053,30 +33841,100 @@ int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <track
 	  targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
 	  targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
 	  targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
-      
-	  // Integrate orbit to the two reference times.
-	  mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
-	  vector <point3d> targposvec;
-	  vector <point3d> targvelvec;
-	  status1 = Kepler_univ_vec(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdvec,targposvec,targvelvec,verbose);
-	  //double semimajor_axis, eccen;
-	  //status1 = Keplerint_multipoint_univar(GMSUN_KM3_SEC2, mjdavg, mjdvec, targpos1,targvel1, targposvec,targvelvec,&semimajor_axis, &eccen);
 
-	  if(status1 == 0 && badpoint==0) {
-	    statevec1 = point6dx2(targposvec[0].x,targposvec[0].y,targposvec[0].z,targposvec[1].x,targposvec[1].y,targposvec[1].z,pairct,0);
-	    stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
-	    allstatevecs.push_back(stateveci);
-	  } else {
-	    // Kepler integration encountered unphysical situation.
-	    continue;
+	  E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
+	  if(E>0.0l) v_inf = sqrt(2.0l*E);
+	  else if(!isnormal(E)) v_inf=0.0l;
+	  else v_inf = -sqrt(-2.0l*E); // This is a bit weird, but we allow the user to
+	                               // set a negative v_inf, if desired, to rule out
+	                               // objects that are barely bound to the sun.
+	  if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
+
+	  // Begin new stuff added to eliminate 'globs'
+	  // These are spurious linkages of unreasonably large numbers (typically tens of thousands)
+	  // of detections that arise when the hypothetical heliocentric distance at a time when
+	  // many observations are acquired is extremely close to, but slightly greater than,
+	  // the heliocentric distance of the observer. Then detections over a large area of sky
+	  // wind up with projected 3-D positions in an extremely small volume -- and furthermore,
+	  // they all have similar velocities because the very small geocentric distance causes
+	  // the inferred velocities to be dominated by the observer's motion and the heliocentric
+	  // hypothesis, with only a negligible contribution from the on-sky angular velocity.
+	  glob_warning=0;
+	  if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
+	    // New-start
+	    // Load target positions
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+	    // Calculate positions relative to observer
+	    targpos1.x -= observerpos1.x;
+	    targpos1.y -= observerpos1.y;
+	    targpos1.z -= observerpos1.z;
+
+	    targpos2.x -= observerpos2.x;
+	    targpos2.y -= observerpos2.y;
+	    targpos2.z -= observerpos2.z;
+
+	    // Calculate velocity relative to observer
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    // Calculate impact parameter (past or future).
+	    absvelocity = vecabs3d(targvel1);
+	    impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
+	    // Effectively, we've projected targpos1 onto the velocity
+	    // vector, and impactpar temporarily holds the magnitude of this projection.
+	    // Subtract off the projection of the distance onto the velocity unit vector
+	    targpos1.x -= impactpar*targvel1.x/absvelocity;
+	    targpos1.y -= impactpar*targvel1.y/absvelocity;
+	    targpos1.z -= impactpar*targvel1.z/absvelocity;
+	    // Now targpos1 is the impact parameter vector at projected closest approach.
+	    impactpar  = vecabs3d(targpos1); // Now impactpar is really the impact parameter
+	    if(impactpar<=minimpactpar) {
+	      // The hypothesis implies the object already passed with minimpactpar km of the Earth
+	      // in the likely case that minimpactpar has been set to imply an actual impact,
+	      // it's not our problem anymore.
+	      glob_warning=1;
+	    }
 	  }
-	}
+	  if(!glob_warning) {
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	    targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	    targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	    // Integrate orbit to the two reference times.
+	    mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
+	    vector <point3d> targposvec;
+	    vector <point3d> targvelvec;
+	    status1 = Kepler_univ_vec(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdvec,targposvec,targvelvec,verbose);
+	    //double semimajor_axis, eccen;
+	    //status1 = Keplerint_multipoint_univar(GMSUN_KM3_SEC2, mjdavg, mjdvec, targpos1,targvel1, targposvec,targvelvec,&semimajor_axis, &eccen);
+
+	    if(status1 == 0 && badpoint==0) {
+	      statevec1 = point6dx2(targposvec[0].x,targposvec[0].y,targposvec[0].z,targposvec[1].x,targposvec[1].y,targposvec[1].z,pairct,0);
+	      stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
+	      thr_svecs[tid].push_back(stateveci);
+	    } else {
+	      // Kepler integration encountered unphysical situation.
+	      continue;
+	    }
+	  }
+        }
+      } else {
+        badpoint=1;
+        // Heliocentric projection found no physical solution.
+        continue;
       }
-    } else {
-      badpoint=1;
-      // Heliocentric projection found no physical solution.
-      continue;
     }
+    for(int t=0; t<ntp; t++)
+      allstatevecs.insert(allstatevecs.end(), thr_svecs[t].begin(), thr_svecs[t].end());
   }
   return(0);
 }
@@ -35161,7 +35019,7 @@ int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    binstatevecs={};
+    binstatevecs.clear();
     for(long i=0; i<long(allstatevecs.size()); i++) {
       // Reverse integerization of the state vector.
       // This is only possible to a crude approximation, of course.
@@ -35396,7 +35254,7 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    binstatevecs={};
+    binstatevecs.clear();
     for(i=0; i<long(allstatevecs.size()); i++) {
       // Reverse integerization of the state vector.
       // This is only possible to a crude approximation, of course.
@@ -35624,7 +35482,7 @@ int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
     // Load new array of state vectors, limited to those in the current geocentric bin
-    binstatevecs={};
+    binstatevecs.clear();
     for(long i=0; i<long(allstatevecs.size()); i++) {
       // Reverse integerization of the state vector.
       // This is only possible to a crude approximation, of course.
