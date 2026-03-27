@@ -15,6 +15,7 @@
 #include <forward_list>
 #include <vector>
 #include <unordered_map>
+#include <set>
 #include <algorithm>
 #include <array>
 #include <regex>
@@ -467,6 +468,9 @@ struct HeliolincConfig {
                                //   Recommended: 0.01–0.03 AU for wide-field survey runs.
   long max_statevecs_per_bin = 0; // Maximum state vectors per geocentric bin before clustering.
                                //   If exceeded, bin is randomly subsampled. Default 0 = unlimited.
+  string hypinds_file = "";    // If non-empty, path to file listing hypothesis indices to run.
+                               //   All other hypotheses are skipped. Enables coarse-to-fine
+                               //   hypothesis pruning when used with make_hypmask output.
 };
 
 struct HeliovaneConfig {
@@ -870,6 +874,20 @@ public:
   double z;
   point3d(double x, double y, double z) :x(x), y(y), z(z) { }
   point3d() = default;
+};
+
+// TrackletProjCache: pre-computed hypothesis-invariant quantities for each tracklet.
+// Compute once before the hypothesis loop with precompute_tracklet_proj_cache().
+struct TrackletProjCache {
+  point3d unitbary1;    // unit sky vector at (RA1, Dec1)
+  point3d obsbary1;     // observer barycentric position at observation 1 (km)
+  double b1;            // 2 * dot(unitbary1, obsbary1)
+  double barydist2_1;   // dot(obsbary1, obsbary1)
+  point3d unitbary2;    // unit sky vector at (RA2, Dec2)
+  point3d obsbary2;     // observer barycentric position at observation 2 (km)
+  double b2;            // 2 * dot(unitbary2, obsbary2)
+  double barydist2_2;   // dot(obsbary2, obsbary2)
+  double ang_rate_rad_per_day; // observed angular rate of the tracklet (rad/day)
 };
 
 class point3d_index{ // Double-precision 3-D point with long-integer idex
@@ -1978,6 +1996,10 @@ int remake_tracklets(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vecto
 int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
 int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
+// Cached overload: uses pre-computed hypothesis-invariant quantities (Opt 1 + Opt 2).
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, const vector <TrackletProjCache> &cache, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
+// Pre-compute per-tracklet hypothesis-invariant quantities for caching across hypotheses.
+int precompute_tracklet_proj_cache(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, vector <TrackletProjCache> &cache);
 int trk2statevec_clusterprobe(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
 int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
 int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
