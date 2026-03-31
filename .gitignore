@@ -35,6 +35,9 @@ src/link_purify
 src/link_planarity
 src/link_planarity_omp
 src/make_hypmask
+src/prefilter_tracklets
+src/split_tracklets_by_time
+src/quota_test
 
 # the static library
 src/libheliolinx.a

@@ -1205,3 +1205,66 @@ Column &nbsp;&nbsp;| Name               | Description
 36                 | magrms             | RMS photometric magnitude across all bands
 37                 | magrange           | Total magnitude range across all bands
 38                 | rating             | Is this linkage pure or mixed, based on input string IDs of constituent detections
+
+## Additional utilities ##
+
+The following programs are built by the Makefile alongside the core pipeline but are not covered in the sections above.
+
+### Heliolinc variants ###
+
+**heliolinc_lowmem:** A version of `heliolinc` with a reduced memory footprint. Rather than keeping all projected state vectors in memory simultaneously, it writes intermediate results to disk and processes them in batches. This is the recommended choice when the full catalog + hypothesis matrix combination would exhaust available RAM.
+
+**heliolinc_lowmem_omp:** Combines the low-memory strategy of `heliolinc_lowmem` with OpenMP multi-threading. Use this for large production runs where both memory and runtime are concerns.
+
+**make_tracklets8:** An overlap-aware variant of `make_tracklets`. It dynamically adjusts the effective minimum tracklet length based on how many images per night overlap a given field, and explicitly handles cases where multiple valid tracklets share one or more detections. Useful when the survey cadence produces many overlapping images on the same night.
+
+### Pre-filtering and quality control ###
+
+**helio_highgrade:** Applies a set of heliocentric-distance hypotheses to pre-filter the tracklet catalog before a full `heliolinc` run. For each hypothesis, it projects tracklets into 3D space and retains only those that cluster convincingly, writing a reduced detection catalog. Running `heliolinc` on this smaller catalog can be dramatically faster. `helio_highgrade` accepts the same hypothesis file as `heliolinc`.
+
+**helio_highgrade_omp:** OpenMP-parallelized version of `helio_highgrade`. Each heliocentric hypothesis is processed on a separate thread; the resulting detection lists are de-duplicated and merged after the parallel region.
+
+**prefilter_tracklets:** A catalog-quality pre-filter that reads the `make_tracklets` output files (image list, pairdets, tracklets, trk2det) and drops tracklets that fail any of several configurable cuts: minimum/maximum angular rate, minimum detection quality, maximum within-tracklet magnitude difference, maximum image density, maximum trail length, minimum number of distinct nights, and a flag to exclude detections matched to known objects. Outputs a filtered set of the same four files, ready to be passed directly to `helio_highgrade` or `heliolinc`.
+
+**make_hypmask:** Implements coarse-to-fine adaptive hypothesis pruning. Given a cluster summary file from a coarse `heliolinc` run and a fine hypothesis file, it outputs the indices of fine hypotheses whose (r, ṙ) coordinates fall within a specified fractional window of at least one detected cluster. The resulting index file can be used to select a subset of the fine hypothesis file, so that the expensive fine run only evaluates hypotheses near regions of hypothesis space where the coarse run found real signal.
+
+### Input catalog preparation ###
+
+**merge_det_catalogs:** Reads a list file whose lines each give a detection catalog and its column-format file, merges all catalogs into a single time-sorted output in the canonical 14-column format. Catalog reads and per-catalog sorts run in parallel (OpenMP); a k-way min-heap merge keeps the final sort to O(N log k). The output can be fed directly into `make_tracklets`.
+
+**make_outim:** A stripped-down version of `make_tracklets` that stops after writing the output image file (`outim`), skipping all tracklet generation. Intended for cases where only the image list is needed — for example, to prepare the `outim` file for Sorcha labeling without the expense of full tracklet creation. Accepts the same `-dets`, `-earth`, `-obscode`, and `-colformat` arguments as `make_tracklets`.
+
+**merge_tracklet_files:** Given a list file pointing to multiple sets of `make_tracklets` outputs (each set consisting of an image file, paired-detection file, tracklet file, and trk2det file), merges all of them into one consistent set of output files. Internal indices are remapped so that the merged files are self-consistent. Use this when, for example, tracklets have been generated separately for different time windows or sky regions and need to be combined for a single `heliolinc` run.
+
+**make_trailed_tracklets:** A variant of `make_tracklets` designed for trailed sources (fast-moving objects whose PSF is elongated into a streak). Unlike `make_tracklets`, it uses the trail length and position angle recorded in the detection catalog to accept only tracklets whose implied motion is self-consistent with the observed trails. Requires the exposure time and tolerance parameters for trail-length and trail-orientation matching.
+
+### Post-processing and analysis ###
+
+**modsplit_hlfile:** Splits the cluster summary and clust2det files output by `heliolinc` into n pieces for embarrassingly parallel runs of `link_purify` or `link_planarity`. Unlike a simple sequential split, it assigns lines by `linenum mod n`, so that the pieces have nearly equal processing times even when post-processing cost varies strongly across clusters (which is the typical case). The n pieces can be post-processed in parallel and their outputs then recombined.
+
+**link_planarity_omp:** OpenMP-parallelized version of `link_planarity`. The per-cluster processing loop (planarity pre-screening, iterative outlier culling, Herget orbit fit) runs across all available threads. This is the recommended post-processing choice after `heliolinc_lowmem_omp`, where all hypotheses land in a single set of output files that must be processed together for correct cross-hypothesis deduplication.
+
+**analyze_linkage01a:** Given a single linkage in `hldet` format, performs a full orbit fit including planetary perturbations and reports astrometric residuals and orbital elements. Intended for manual inspection and validation of individual candidate linkages after post-processing.
+
+**parse_trk2det:** Parses the trk2det file (tracklet-to-detection index mapping) produced by `make_tracklets`, joining it against the paired-detection file to produce a human-readable output that lists, for each tracklet, all of its constituent detections with their astrometric and photometric measurements, angular velocity, great-circle residual, and other summary statistics.
+
+**label_hldet:** Assigns string identifiers to detections in an unlabeled `hldet`-format file by spatiotemporal k-d tree matching against a labeled reference file. For each detection in the reference file, the nearest neighbor within a specified tolerance in (MJD, RA, Dec, magnitude) space has its string ID updated. The output file has the same number of lines as the input, with IDs replaced only where matches were found. Useful for injecting truth labels into a detection catalog for simulation studies.
+
+### Hypothesis matrix generation ###
+
+**calc_heliohypmat:** Generates a heliocentric hypothesis matrix file for use with `heliolinc`. Rather than uniform sampling, it interpolates a user-supplied table that specifies the desired sampling density in r, ṙ, and r̈ as a function of heliocentric distance. Optional scale factors (`-distfac`, `-velfac`, `-accfac`) allow global coarsening or refinement of the sampling without editing the interpolation table.
+
+### Time-splitting tracklet files ###
+
+**split_tracklets_by_time:** Time-partitions the four output files from `make_tracklets` (or `make_trailed_tracklets`) into N non-overlapping windows, each covering at most X days (`-window X`). This enables running `heliolinc` independently on each time slice—for example to process a long survey in shorter overlapping chunks—without re-running `make_tracklets` on time-partitioned input catalogs.
+
+Each tracklet is assigned to the window that contains its first image. Because tracklets are intra-night, both images of a tracklet will normally fall in the same window; a warning is issued if a window boundary falls within a night. Pairdets are included based on which tracklets reference them. Windows with no tracklets produce no output files.
+
+Output filenames are derived automatically from the `-imgs` filename: the `outim_` prefix and file extension are stripped to produce a stem, and each window's files are named `outim_{stem}_split{NNN}.txt`, `pairdets_{stem}_split{NNN}.csv`, `tracklets_{stem}_split{NNN}.csv`, and `trk2det_{stem}_split{NNN}.csv`. A custom stem can be supplied with `-outstem`. Example:
+
+```
+split_tracklets_by_time -imgs outim_catalog_01.txt -pairdets pairdets_catalog_01.csv \
+  -tracklets tracklets_catalog_01.csv -trk2det trk2det_catalog_01.csv -window 14
+```
+
+This produces `outim_catalog_01_split001.txt`, `pairdets_catalog_01_split001.csv`, etc.
