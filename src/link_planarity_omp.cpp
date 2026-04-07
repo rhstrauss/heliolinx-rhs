@@ -24,10 +24,8 @@ int main(int argc, char *argv[])
   string clusterlist;
   string sumfile,clust2detfile;
   vector <hlclust> inclustvec;
-  vector <hlclust> clustvecmain;
   vector <hlclust> outclust;
   vector  <longpair> inclust2det;
-  vector  <longpair> clust2detmain;
   vector  <longpair> outclust2det;
   vector <hlimage> image_log;
   vector <hldet> detvec;
@@ -392,9 +390,13 @@ int main(int argc, char *argv[])
   }
   cout << "Read " << detvec.size() << " data lines from paired detection file " << pairdetfile << "\n";
 
-  // Read cluster list, reading and concatenating the data from each pair of files
-  clustvecmain={};
-  clust2detmain={};
+  // Process each file pair through link_planarity_omp independently,
+  // accumulating only survivors. This avoids loading all input files
+  // into memory simultaneously.
+  vector <hlclust> allsurvivors;
+  vector <longpair> allsurvivors_c2d;
+  long total_input_clusters = 0;
+
   instream1.open(clusterlist,ios_base::in);
   if(!instream1) {
     cerr << "can't open input file " << clusterlist << "\n";
@@ -418,28 +420,94 @@ int main(int argc, char *argv[])
 	return(1);
       }
       cout << "Read " << inclust2det.size() << " data lines from cluster-to-detection file " << clust2detfile << "\n";
-      // Append to master list
-      clustnum = clustvecmain.size();
-      for(i=0;i<long(inclustvec.size());i++) {
-	inclustvec[i].clusternum += clustnum;
-	clustvecmain.push_back(inclustvec[i]);
+      total_input_clusters += inclustvec.size();
+
+      // Process this file's clusters through link_planarity_omp
+      vector <hlclust> file_outclust;
+      vector <longpair> file_outclust2det;
+      status = link_planarity_omp(image_log, detvec, inclustvec, inclust2det, config, file_outclust, file_outclust2det);
+      if(status!=0) {
+	cerr << "ERROR: link_planarity_omp failed with status " << status << " on files " << sumfile << " / " << clust2detfile << "\n";
+	return(status);
       }
-      for(i=0;i<long(inclust2det.size());i++) {
-	inclust2det[i].i1 += clustnum;
-	clust2detmain.push_back(inclust2det[i]);
+      cout << "File produced " << file_outclust.size() << " surviving clusters\n";
+
+      // Offset-renumber and append to accumulators
+      clustnum = allsurvivors.size();
+      for(i=0;i<long(file_outclust.size());i++) {
+	file_outclust[i].clusternum += clustnum;
+	allsurvivors.push_back(file_outclust[i]);
       }
+      for(i=0;i<long(file_outclust2det.size());i++) {
+	file_outclust2det[i].i1 += clustnum;
+	allsurvivors_c2d.push_back(file_outclust2det[i]);
+      }
+      // Input vectors freed here (go out of scope or already consumed)
+      inclustvec.clear();
+      inclust2det.clear();
     } else {
       cerr << "WARNING: unable to read valid file names from cluster list file " << clusterlist << "\n";
     }
   }
   instream1.close();
-  cout << "Finished creating master cluster summary vector with length " << clustvecmain.size() << ",\n";
-  cout << "and master cluster-to-detection vector with length " << clust2detmain.size() << "\n";
+  cout << "Processed " << total_input_clusters << " input clusters across all files; " << allsurvivors.size() << " survived per-file processing\n";
 
-  status = link_planarity_omp(image_log, detvec, clustvecmain, clust2detmain, config, outclust, outclust2det);
-  if(status!=0) {
-    cerr << "ERROR: link_planarity_omp failed with status " << status << "\n";
-    return(status);
+  // Final cross-file detection-conflict dedup: sort survivors by metric
+  // (best first), greedily accept clusters whose detections are all unused.
+  {
+    long survivor_num = allsurvivors.size();
+    vector <double_index> metric_index;
+    double_index dindex = double_index(0.0,0);
+    for(long k=0; k<survivor_num; k++) {
+      dindex = double_index(allsurvivors[k].metric, k);
+      metric_index.push_back(dindex);
+    }
+    sort(metric_index.begin(), metric_index.end(), lower_double_index());
+
+    vector <int> detusedvec;
+    make_ivec(detvec.size(), detusedvec);
+    outclust={};
+    outclust2det={};
+
+    for(long k=survivor_num-1; k>=0; k--) {
+      long idx = metric_index[k].index;
+      hlclust onecluster = allsurvivors[idx];
+      vector <long> clustind = tracklet_lookup(allsurvivors_c2d, onecluster.clusternum);
+      long ptnum = clustind.size();
+
+      // Check if any detection is already claimed
+      int detsused = 0;
+      for(long p=0; p<ptnum; p++) {
+	if(detusedvec[clustind[p]]!=0) { detsused=1; break; }
+      }
+
+      if(onecluster.uniquepoints>0 && onecluster.totRMS<=config.maxrms && detsused==0) {
+	// Assign PURE/MIXED rating
+	char rating[SHORTSTRINGLEN];
+	stringncopy01(rating,"PURE",SHORTSTRINGLEN);
+	for(long p=1; p<ptnum; p++) {
+	  if(stringnmatch01(detvec[clustind[p]].idstring,detvec[clustind[p-1]].idstring,SHORTSTRINGLEN) != 0) {
+	    stringncopy01(rating,"MIXED",SHORTSTRINGLEN);
+	  }
+	}
+	for(i=0;i<SHORTSTRINGLEN;i++) onecluster.rating[i] = rating[i];
+
+	// Sort detections by MJD for output, mark as used
+	vector <double_index> sortclust;
+	for(long p=0; p<ptnum; p++) {
+	  sortclust.push_back(double_index(detvec[clustind[p]].MJD, clustind[p]));
+	  detusedvec[clustind[p]]=1;
+	}
+	sort(sortclust.begin(), sortclust.end(), lower_double_index());
+
+	onecluster.clusternum = outclust.size();
+	outclust.push_back(onecluster);
+	for(long p=0; p<ptnum; p++) {
+	  outclust2det.push_back(longpair(onecluster.clusternum, sortclust[p].index));
+	}
+      }
+    }
+    cout << "Cross-file dedup: " << allsurvivors.size() << " survivors -> " << outclust.size() << " final clusters\n";
   }
 
   outstream1.open(outsumfile);
