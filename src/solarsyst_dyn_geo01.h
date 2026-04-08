@@ -566,6 +566,12 @@ struct LinkPurifyConfig {
   int minobsnights = 3;        // Minimum number of distinct observing nights for a valid linkage
   int minpointnum = 6;         // Minimum number of individual detections for a valid linkage
   int use_heliovane = 0;       // Are we analyzing data from heliovane rather than heliolinc?
+  double minH = -100.0;        // Minimum plausible absolute magnitude H (disabled by default).
+                               // Set to e.g. 5.0 to reject clusters implying D>200km unknown asteroids.
+  double maxH = 100.0;         // Maximum plausible absolute magnitude H (disabled by default).
+                               // Set to e.g. 30.0 to reject clusters implying sub-cm objects.
+  double maxHspread = 100.0;   // Maximum stddev of H across detections in a cluster (disabled by default).
+                               // Set to e.g. 2.0 to reject clusters with inconsistent photometry.
   int verbose=0;
 };
 
@@ -2003,7 +2009,7 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
 // Cached overload: uses pre-computed hypothesis-invariant quantities (TrackletProjCache).
 int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, const vector <TrackletProjCache> &cache, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
 int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
-// Cached overload: uses pre-computed hypothesis-invariant quantities (Opt 1 + Opt 2).
+// Cached overload: uses pre-computed hypothesis-invariant quantities (projection cache + tracklet rate filter).
 int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, const vector <TrackletProjCache> &cache, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, double min_RA = 0.0, double max_RA = 360.0, double min_Dec = -90.0, double max_Dec = 90.0, double min_geodist_filter = 0.0);
 // Pre-compute per-tracklet hypothesis-invariant quantities for caching across hypotheses.
 int precompute_tracklet_proj_cache(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, vector <TrackletProjCache> &cache);

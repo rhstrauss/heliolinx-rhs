@@ -270,6 +270,36 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-minH" || string(argv[i]) == "-minh" || string(argv[i]) == "-min_H" || string(argv[i]) == "--minH") {
+      if(i+1 < argc) {
+	config.minH=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "minH keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-maxH" || string(argv[i]) == "-maxh" || string(argv[i]) == "-max_H" || string(argv[i]) == "--maxH") {
+      if(i+1 < argc) {
+	config.maxH=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "maxH keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-maxHspread" || string(argv[i]) == "-maxhspread" || string(argv[i]) == "-max_H_spread" || string(argv[i]) == "-Hspread" || string(argv[i]) == "--maxHspread") {
+      if(i+1 < argc) {
+	config.maxHspread=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "maxHspread keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--VERB" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--verbose") {
       if(i+1 < argc) {
 	config.verbose=stoi(argv[++i]);
