@@ -37,6 +37,9 @@ src/link_planarity_omp
 src/make_hypmask
 src/prefilter_tracklets
 src/split_tracklets_by_time
+src/download_mpcobs
+src/label_hldet_mpc
+src/link_purify_chisq
 src/quota_test
 
 # the static library

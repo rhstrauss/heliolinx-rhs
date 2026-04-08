@@ -16,7 +16,15 @@ PREFIX=/path make install  # Install to custom location
 make clean      # Remove all binaries, objects, and .deps/
 ```
 
-Requires a C++11-capable compiler and OpenMP. The Makefile compiles with `-std=c++11 -fopenmp` and handles dependency tracking via `.deps/`.
+To build a single program (faster iteration during development):
+
+```bash
+cd src
+make link_planarity_omp   # Only rebuilds this target and its dependencies
+make install              # Copies all built programs to ../bin
+```
+
+Requires a C++11-capable compiler and OpenMP. The Makefile compiles with `-std=c++11 -fopenmp` and handles dependency tracking via `.deps/`. All programs link against `libheliolinx.a` (built from `solarsyst_dyn_geo01.cpp`), so changes to the shared library trigger recompilation of dependents.
 
 ## Building Python Bindings
 
@@ -102,6 +110,12 @@ link_purify / link_planarity  →  final deduplicated linkages
 | `parse_clust2det` | Parses cluster-to-detection mapping |
 | `parse_clust2det_MPC80` | Parses clust2det in MPC 80-column format |
 | `parse_trk2det` | Parses tracklet-to-detection mapping |
+| `link_planarity_omp` | OpenMP parallelized planarity purification (production default) |
+| `link_purify_chisq` | Chi-squared variant of link_purify |
+| `label_hldet_mpc` | Cross-matches heliolinc detections against MPC catalog |
+| `make_hypmask` | Creates hypothesis masks for targeted hypothesis runs |
+| `prefilter_tracklets` | Pre-filters tracklets before heliolinc |
+| `split_tracklets_by_time` | Splits tracklet files by time window |
 
 ### Key Concepts
 
@@ -110,6 +124,12 @@ link_purify / link_planarity  →  final deduplicated linkages
 - **State vector clustering**: After projection, nearby vectors in position+velocity space indicate the same real object.
 - **`clustrad`**: The clustering radius parameter (in km) passed to `heliolinc`; controls sensitivity vs. false-positive rate.
 - **`NIGHTSTEP`**: Minimum interval in days (defined in header) between detections to be counted as separate nights (currently 0.6 days).
+- **`useunivar` modes**: Controls how heliolinc projects tracklets. Mode 0 = Keplerian, mode 2 = f-g function with `TrackletProjCache` (faster, uses heliocentric r, rdot, rdotdot triplets). Mode 2 is the production default.
+- **`LinkPurifyConfig`**: Shared configuration struct (defined in the header) used by `link_planarity`, `link_planarity_omp`, `link_purify`, and `link_purify_chisq`. Holds all filtering thresholds (astrometric RMS, out-of-plane RMS, H-magnitude bounds, etc.).
+
+## Critical: Internal Units
+
+**Positions throughout the codebase are in km, not AU.** This includes `heliopos`, `image_log[].X/Y/Z` (observer positions), and all state vectors. The header defines `AU_KM = 1.495978700e8` for conversion. When computing physical quantities that need AU (e.g., absolute magnitude H = m - 5*log10(r_AU * delta_AU)), you **must** divide km values by `AU_KM`. Times are in MJD (days). Velocities are in km/sec or km/day depending on context — check carefully.
 
 ## Code Conventions
 
@@ -117,4 +137,4 @@ link_purify / link_planarity  →  final deduplicated linkages
 - Shared functionality lives exclusively in `solarsyst_dyn_geo01.h/.cpp`.
 - Programs parse their own command-line arguments by scanning `argv` for flag strings (e.g., `-dets`, `-earth`).
 - Error handling follows a pattern of printing to `cerr` and returning nonzero, or (in newer code) skipping problematic clusters rather than exiting.
-- Physical units throughout: distances in AU or km (context-dependent), times in MJD or Julian Days, angles in degrees or radians (check carefully).
+- Physical units throughout: **internal positions are always km** (see "Critical: Internal Units" above), times in MJD or Julian Days, angles in degrees or radians (check carefully). File I/O may use AU for hypothesis files (r, rdot) but internal computation is km.
