@@ -58,7 +58,6 @@ heliovane.cpp
 link_purify.cpp
 link_planarity.cpp
 link_planarity_omp.cpp
-link_purify_omp.cpp
 ```
 
 ##### Library for solar system dynamics and geometry, etc: #####
@@ -133,8 +132,6 @@ make install
 **heliolinc_lowmem_omp:** OpenMP-parallel, streaming-output variant of `heliolinc_lowmem`. The outer loop over heliocentric hypotheses is parallelized across threads, and each hypothesis writes its own `{outsum}_{N}.txt` and `{clust2det}_{N}.csv` pair to disk as it completes, so peak memory does not scale with the number of hypotheses. `-outsum` and `-clust2det` are therefore treated as filename prefixes rather than single output files. Thread count is taken from `OMP_NUM_THREADS`. Per-hypothesis output files can be fed directly into `link_planarity_omp` / `link_purify_omp` via an `-lflist` file, replicating the Python `multiprocessing.Pool` pattern in a single binary with no per-hypothesis process overhead.
 
 **link_planarity_omp:** OpenMP-parallel variant of `link_planarity`. Reads the standard `-lflist` file enumerating one or more `sumfile clust2detfile` pairs (typically the per-hypothesis outputs from `heliolinc_lowmem_omp`) and processes the pairs in parallel across threads. A single merged `-outsum` / `-clust2det` pair is written at the end, bit-identical to the serial `link_planarity` output on the same inputs.
-
-**link_purify_omp:** OpenMP-parallel variant of `link_purify`. Same `-lflist` interface as `link_planarity_omp`: parallelism is over input file pairs, and a single merged output file pair is produced. When the input `-lflist` contains only one pair, `link_purify_omp` effectively runs serially; to exercise the parallel path, feed it the per-hypothesis outputs from `link_planarity_omp` (or directly from `heliolinc_lowmem_omp`) rather than a single pre-merged pair.
 
 **merge_det_catalogs:** Combine multiple detection catalogs (each with its own column-format file, as accepted by `make_tracklets`) into a single time-sorted catalog in the canonical 14-column detection format. Catalogs are read in parallel (one OpenMP thread per catalog), skip the sort when already time-ordered, and are merged with a k-way min-heap merge (`O(N log k)` rather than `O(N log N)` for a global re-sort). Output is directly ingestible by `make_tracklets` with a matching colformat file. Useful for merging catalogs from multiple telescopes/sites, or for combining nightly products into a window-level input.
 
