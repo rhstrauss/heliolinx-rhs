@@ -44,6 +44,8 @@ make_tracklets.cpp
 ```
 heliolinc.cpp
 heliolinc_omp.cpp
+heliolinc_lowmem.cpp
+heliolinc_lowmem_omp.cpp
 ```
 
 ##### Tracklet linking (heliovane): #####
@@ -55,6 +57,8 @@ heliovane.cpp
 ```
 link_purify.cpp
 link_planarity.cpp
+link_planarity_omp.cpp
+link_purify_omp.cpp
 ```
 
 ##### Library for solar system dynamics and geometry, etc: #####
@@ -116,6 +120,14 @@ make install
 **heliolinc:** Link together pairs/tracklets produced by make_tracklets into candidate asteroid discoveries, using (by default) a k-d tree range query for linking. The k-d tree linking is significant because previous versions used the DBSCAN algorithm, which is more sophisticated but actually inappropriate for the specific use case of heliolinc. Significant performance gains were realized by switching from DBSCAN to the simpler k-d tree range query.
 
 **heliolinc_omp:** Multi-threaded version of heliolinc.
+
+**heliolinc_lowmem:** Memory-efficient variant of `heliolinc` that streams per-hypothesis work through a lower-footprint code path. Accepts the same inputs as `heliolinc` and is recommended for long time windows or large detection catalogs where the standard `heliolinc` would exhaust available RAM.
+
+**heliolinc_lowmem_omp:** OpenMP-parallel, streaming-output variant of `heliolinc_lowmem`. The outer loop over heliocentric hypotheses is parallelized across threads, and each hypothesis writes its own `{outsum}_{N}.txt` and `{clust2det}_{N}.csv` pair to disk as it completes, so peak memory does not scale with the number of hypotheses. `-outsum` and `-clust2det` are therefore treated as filename prefixes rather than single output files. Thread count is taken from `OMP_NUM_THREADS`. Per-hypothesis output files can be fed directly into `link_planarity_omp` / `link_purify_omp` via an `-lflist` file, replicating the Python `multiprocessing.Pool` pattern in a single binary with no per-hypothesis process overhead.
+
+**link_planarity_omp:** OpenMP-parallel variant of `link_planarity`. Reads the standard `-lflist` file enumerating one or more `sumfile clust2detfile` pairs (typically the per-hypothesis outputs from `heliolinc_lowmem_omp`) and processes the pairs in parallel across threads. A single merged `-outsum` / `-clust2det` pair is written at the end, bit-identical to the serial `link_planarity` output on the same inputs.
+
+**link_purify_omp:** OpenMP-parallel variant of `link_purify`. Same `-lflist` interface as `link_planarity_omp`: parallelism is over input file pairs, and a single merged output file pair is produced. When the input `-lflist` contains only one pair, `link_purify_omp` effectively runs serially; to exercise the parallel path, feed it the per-hypothesis outputs from `link_planarity_omp` (or directly from `heliolinc_lowmem_omp`) rather than a single pre-merged pair.
 
 **heliovane:** Implements a complementary linking algorithm different from heliolinc, offering much better performance in the specific niche case of asteroids interior to Earth's orbit and seen at a sun-asteroid-observer phase angle close to 90 degrees.
 
