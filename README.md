@@ -72,6 +72,13 @@ solarsyst_dyn_geo01.h
 parse_clust2det_new.cpp
 parse_clust2det_MPC80.cpp
 modsplit_hlfile.cpp
+merge_det_catalogs.cpp
+split_tracklets_by_time.cpp
+```
+
+##### Tests: #####
+```
+tests/validate_pipeline.py
 ```
 
 #### Makefile: ####
@@ -128,6 +135,12 @@ make install
 **link_planarity_omp:** OpenMP-parallel variant of `link_planarity`. Reads the standard `-lflist` file enumerating one or more `sumfile clust2detfile` pairs (typically the per-hypothesis outputs from `heliolinc_lowmem_omp`) and processes the pairs in parallel across threads. A single merged `-outsum` / `-clust2det` pair is written at the end, bit-identical to the serial `link_planarity` output on the same inputs.
 
 **link_purify_omp:** OpenMP-parallel variant of `link_purify`. Same `-lflist` interface as `link_planarity_omp`: parallelism is over input file pairs, and a single merged output file pair is produced. When the input `-lflist` contains only one pair, `link_purify_omp` effectively runs serially; to exercise the parallel path, feed it the per-hypothesis outputs from `link_planarity_omp` (or directly from `heliolinc_lowmem_omp`) rather than a single pre-merged pair.
+
+**merge_det_catalogs:** Combine multiple detection catalogs (each with its own column-format file, as accepted by `make_tracklets`) into a single time-sorted catalog in the canonical 14-column detection format. Catalogs are read in parallel (one OpenMP thread per catalog), skip the sort when already time-ordered, and are merged with a k-way min-heap merge (`O(N log k)` rather than `O(N log N)` for a global re-sort). Output is directly ingestible by `make_tracklets` with a matching colformat file. Useful for merging catalogs from multiple telescopes/sites, or for combining nightly products into a window-level input.
+
+**split_tracklets_by_time:** Time-partition the four output files of `make_tracklets` (or `make_trailed_tracklets`) — `outim`, `pairdets`, `tracklets`, `trk2det` — into a series of non-overlapping windows of at most `-window` days each. Each tracklet is assigned to the window that contains its first image. The point of this is to avoid re-running `make_tracklets` on a long window just to slice it into smaller pieces for per-window heliolinc runs: run `make_tracklets` once, then split. Output filenames get a `_split{NNN}` suffix; override the stem with `-outstem`.
+
+**tests/validate_pipeline.py:** End-to-end validation test for the pipeline. Generates synthetic detections for a small number of simulated main-belt asteroids on circular ecliptic-plane orbits near opposition, runs `make_tracklets → heliolinc → link_purify`, and verifies that every simulated object is recovered as a distinct linkage. Useful as a sanity check after a build, or as a regression gate when modifying the inner numerical kernels (e.g. the Halley Kepler solver — see `halleysolver.md`). Run with `python3 tests/validate_pipeline.py`; pass `--keep-tmpdir` to inspect the generated files.
 
 **heliovane:** Implements a complementary linking algorithm different from heliolinc, offering much better performance in the specific niche case of asteroids interior to Earth's orbit and seen at a sun-asteroid-observer phase angle close to 90 degrees.
 

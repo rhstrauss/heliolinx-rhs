@@ -8335,31 +8335,38 @@ int Kepler_fg_func_int(const double MGsun, const double mjdstart, const point3d 
     x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
   }
 
-  // Newton's Method solution for x
-  q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+  // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton,
+  // saving ~2x sin/cos evaluations for the common case of low-eccentricity orbits.
+  // See halleysolver.md for derivation and benchmark notes.
+  double sin_x = sin(x);
+  double cos_x = cos(x);
+  q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
   while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
-    dqdx = 1.0l - EC*cos(x) + ES*sin(x);
-    dx = -q/dqdx;
+    dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+    double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+    double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+    dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
     x += dx;
-    q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+    sin_x = sin(x);
+    cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
     itct++;
-    // cout << "q, x, dqdx, dx: " << std::scientific << q << " " << x << " " << dqdx << " " << dx << "\n";
   }
 
-  // Evaluate f and g functions
+  // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
   double f,g,fdot,gdot,r,v;
   f = g = fdot = gdot = r = v = 0.0l;
-  
-  f = (a/r0)*(cos(x) - 1.0l) + 1.0l;
-  g = deltat + (sin(x) - x)/n;
-  
+
+  f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+  g = deltat + (sin_x - x)/n;
+
   endpos.x = f*startpos.x + g*startvel.x;
   endpos.y = f*startpos.y + g*startvel.y;
   endpos.z = f*startpos.z + g*startvel.z;
   r = vecabs3d(endpos);
 
-  fdot = -a*a*n*sin(x)/r/r0;
-  gdot = a*(cos(x)-1.0l)/r + 1.0l;
+  fdot = -a*a*n*sin_x/r/r0;
+  gdot = a*(cos_x-1.0l)/r + 1.0l;
   
   endvel.x = fdot*startpos.x + gdot*startvel.x;
   endvel.y = fdot*startpos.y + gdot*startvel.y;
@@ -8418,30 +8425,37 @@ int Kepler_fg_func_vec(const double MGsun, const double mjdstart, const point3d 
       x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
     }
 
-    // Newton's Method solution for x
-    q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+    // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton.
+    // See halleysolver.md for derivation and benchmark notes.
+    double sin_x = sin(x);
+    double cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
     while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
-      dqdx = 1.0l - EC*cos(x) + ES*sin(x);
-      dx = -q/dqdx;
+      dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+      double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+      double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+      dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
       x += dx;
-      q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+      sin_x = sin(x);
+      cos_x = cos(x);
+      q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
       itct++;
     }
 
-    // Evaluate f and g functions
+    // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
     double f,g,fdot,gdot,r,v;
     f = g = fdot = gdot = r = v = 0.0l;
-  
-    f = (a/r0)*(cos(x) - 1.0l) + 1.0l;
-    g = deltat + (sin(x) - x)/n;
-  
+
+    f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+    g = deltat + (sin_x - x)/n;
+
     posnow.x = f*startpos.x + g*startvel.x;
     posnow.y = f*startpos.y + g*startvel.y;
     posnow.z = f*startpos.z + g*startvel.z;
     r = vecabs3d(posnow);
 
-    fdot = -a*a*n*sin(x)/r/r0;
-    gdot = a*(cos(x)-1.0l)/r + 1.0l;
+    fdot = -a*a*n*sin_x/r/r0;
+    gdot = a*(cos_x-1.0l)/r + 1.0l;
   
     velnow.x = fdot*startpos.x + gdot*startvel.x;
     velnow.y = fdot*startpos.y + gdot*startvel.y;
