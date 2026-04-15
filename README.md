@@ -46,6 +46,8 @@ heliolinc.cpp
 heliolinc_omp.cpp
 heliolinc_lowmem.cpp
 heliolinc_lowmem_omp.cpp
+helio_highgrade.cpp
+helio_highgrade_omp.cpp
 ```
 
 ##### Tracklet linking (heliovane): #####
@@ -130,6 +132,10 @@ make install
 **heliolinc_lowmem:** Memory-efficient variant of `heliolinc` that streams per-hypothesis work through a lower-footprint code path. Accepts the same inputs as `heliolinc` and is recommended for long time windows or large detection catalogs where the standard `heliolinc` would exhaust available RAM.
 
 **heliolinc_lowmem_omp:** OpenMP-parallel, streaming-output variant of `heliolinc_lowmem`. The outer loop over heliocentric hypotheses is parallelized across threads, and each hypothesis writes its own `{outsum}_{N}.txt` and `{clust2det}_{N}.csv` pair to disk as it completes, so peak memory does not scale with the number of hypotheses. `-outsum` and `-clust2det` are therefore treated as filename prefixes rather than single output files. Thread count is taken from `OMP_NUM_THREADS`. Per-hypothesis output files can be fed directly into `link_planarity_omp` / `link_purify_omp` via an `-lflist` file, replicating the Python `multiprocessing.Pool` pattern in a single binary with no per-hypothesis process overhead.
+
+**helio_highgrade:** High-grade a detection catalog by running only the clustering half of heliolinc across a grid of heliocentric radial-motion hypotheses and emitting every detection that appears in any cluster. The output is a much smaller detection catalog that preserves real objects and suppresses noise, suitable as input to a subsequent full `heliolinc_lowmem` / `link_planarity` / `link_purify` run. CLI mirrors `heliolinc_lowmem`.
+
+**helio_highgrade_omp:** OpenMP-parallel variant of `helio_highgrade`. The outer loop over heliocentric hypotheses runs in parallel with thread-local state-vector and clustering scratch, and survivor detection indices are accumulated into a shared `char` mark array using atomic stores rather than a growing/sorted index vector. The mark array is collapsed to a de-duplicated `outdet` after the parallel region. Output format and CLI are identical to `helio_highgrade`; thread count is taken from `OMP_NUM_THREADS`. See `helio_highgrade_omp.md` for a complete description of the differences from the serial version.
 
 **link_planarity_omp:** OpenMP-parallel variant of `link_planarity`. Reads the standard `-lflist` file enumerating one or more `sumfile clust2detfile` pairs (typically the per-hypothesis outputs from `heliolinc_lowmem_omp`) and processes the pairs in parallel across threads. A single merged `-outsum` / `-clust2det` pair is written at the end, bit-identical to the serial `link_planarity` output on the same inputs.
 

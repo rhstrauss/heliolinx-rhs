@@ -58310,3 +58310,148 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
   }
   return(0);
 }
+
+
+// heliolinc_highgrade2_omp: April 2026.
+// OpenMP-parallel version of heliolinc_highgrade2 using dynamic scheduling.
+// Each thread processes one hypothesis independently: state-vector construction
+// (trk2statevec_*) and KD-tree clustering (highgrade_kdpairs) run per-thread with
+// thread-local scratch vectors.  The set of "interesting" detection indices is
+// accumulated into a shared char mark-array of length detvec.size(), which each
+// thread updates under #pragma omp atomic write.  After the parallel region the
+// main thread collects marked indices into outdet.  Peak memory is bounded to
+// num_threads x (one hypothesis of state vectors) plus the O(Ndet) mark array,
+// rather than accumulating a growing linkdet_indices across all hypotheses.
+int heliolinc_highgrade2_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, long minobsnum, vector <hldet> &outdet)
+{
+  outdet = {};
+
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+  long detnum = detvec.size();
+  long accelct=0;
+  long i=0;
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  cout << "heliolinc_highgrade2_omp: OpenMP parallel over " << accelnum << " hypotheses\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km, npt: " << config.dbscan_npt << "\n";
+
+  if(imnum<=0) { cerr << "ERROR: empty image catalog\n"; return(1); }
+  if(pairnum<=0) { cerr << "ERROR: empty tracklet array\n"; return(1); }
+  if(trk2detnum<=0) { cerr << "ERROR: empty trk2det array\n"; return(1); }
+  if(accelnum<=0) { cerr << "ERROR: empty heliocentric hypothesis array\n"; return(1); }
+  if(detnum<=0) { cerr << "ERROR: empty detection array\n"; return(1); }
+
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(i=0; i<detnum; i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cerr << "\nERROR: input positive-valued reference MJD is required\n";
+      cerr << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      return(1);
+    } else {
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << "Auto-selected reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0;accelct<accelnum;accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  // Shared mark array: 1 if detection index i appears in any hypothesis cluster.
+  vector <char> detmark(detnum, 0);
+
+#pragma omp parallel for schedule(dynamic) default(none) \
+  shared(image_log, detvec, tracklets, trk2det, radhyp, heliodist, heliovel, helioacc, \
+         Earthrefpos, config, chartimescale, detmark, accelnum, pairnum, detnum, \
+         use_univar, NotKepler, minobsnum, cout, cerr)
+  for(long ac=0; ac<accelnum; ac++) {
+    vector <point6ix2> local_statevecs;
+    vector <long> local_linkdet;
+    long status = 0;
+
+    if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
+      status = trk2statevec_univar(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else if(use_univar == 2) {
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    } else if(use_univar == 3) {
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else {
+      status = trk2statevec_fgfunc(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    }
+
+    if(status==1) {
+#pragma omp critical(hho_log)
+      cerr << "WARNING: hypothesis " << ac << " led to invalid result: SKIPPING\n";
+      continue;
+    } else if(status==2) {
+#pragma omp critical(hho_log)
+      cerr << "Fatal error from trk2statevec on hypothesis " << ac << "\n";
+      continue;
+    }
+    if(local_statevecs.size()<=1) continue;
+
+    status = highgrade_kdpairs(local_statevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_linkdet, config.clustrad, config.clustchangerad, config.dbscan_npt, minobsnum, config.mintimespan, config.mingeodist, config.geologstep, config.maxgeodist, config.verbose);
+    if(status!=0) {
+#pragma omp critical(hho_log)
+      cerr << "ERROR: highgrade_kdpairs hyp " << ac << " exit code " << status << "\n";
+      continue;
+    }
+
+#pragma omp critical(hho_log)
+    cout << "Hypothesis " << ac << ": " << local_linkdet.size() << " detections found\n";
+
+    // Mark detections in shared array.  Each index is a distinct byte so
+    // atomic writes are safe without needing a lock.
+    for(size_t k=0; k<local_linkdet.size(); k++) {
+      long idx = local_linkdet[k];
+      if(idx>=0 && idx<detnum) {
+#pragma omp atomic write
+        detmark[idx] = 1;
+      }
+    }
+  }
+
+  long nkept = 0;
+  for(i=0; i<detnum; i++) if(detmark[i]) nkept++;
+  outdet.reserve(nkept);
+  for(i=0; i<detnum; i++) {
+    if(detmark[i]) outdet.push_back(detvec[i]);
+  }
+
+  cout << "Found clusters for " << outdet.size() << " total detections, out of "
+       << detnum << " initially input. Reduction factor "
+       << double(detnum)/double(outdet.size()>0?outdet.size():1) << "\n";
+  if(automjd) cout << "Automatically calculated reference MJD was " << config.MJDref << "\n";
+  return(0);
+}
