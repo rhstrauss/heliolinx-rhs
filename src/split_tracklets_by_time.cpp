@@ -50,11 +50,15 @@ static void show_usage()
   cerr << "Usage: split_tracklets_by_time -imgs imfile -pairdets pairdetfile\n";
   cerr << "  -tracklets trackletfile -trk2det trk2detfile\n";
   cerr << "  -window window_size_days\n";
-  cerr << "  [-outstem custom_stem] [-verbose verbosity]\n";
+  cerr << "  [-outstem custom_stem] [-noon_local utc_offset_hours] [-verbose verbosity]\n";
   cerr << "\nDefault output stem is derived from -imgs by stripping \"outim_\" and extension.\n";
   cerr << "Output files per window: outim_{stem}_split{NNN}.txt,\n";
   cerr << "  pairdets_{stem}_split{NNN}.csv, tracklets_{stem}_split{NNN}.csv,\n";
   cerr << "  trk2det_{stem}_split{NNN}.csv\n";
+  cerr << "\n-noon_local: snap window boundaries to local noon for the given UTC offset.\n";
+  cerr << "  For Hawaii (HST = UTC-10), use -noon_local -10. This places boundaries at\n";
+  cerr << "  22:00 UTC (local noon), which falls in daytime gaps and minimizes\n";
+  cerr << "  cross-boundary tracklets. Default: off (boundaries start at min MJD).\n";
 }
 
 // Zero-padded window label, 1-indexed, minimum width 3.
@@ -86,6 +90,7 @@ int main(int argc, char *argv[])
   string imfile, pairdetfile, trackletfile, trk2detfile;
   string outstem;
   double window_days = 0.0;
+  double noon_local_offset = NAN;
   int verbose = 0;
   int status = 0;
   long i;
@@ -115,6 +120,9 @@ int main(int argc, char *argv[])
     } else if(string(argv[i]) == "-outstem" || string(argv[i]) == "--outstem") {
       if(i+1 < argc) { outstem = argv[++i]; i++; }
       else { cerr << "ERROR: -outstem requires a string\n"; show_usage(); return(1); }
+    } else if(string(argv[i]) == "-noon_local" || string(argv[i]) == "--noon_local") {
+      if(i+1 < argc) { noon_local_offset = stod(argv[++i]); i++; }
+      else { cerr << "ERROR: -noon_local requires a UTC offset in hours\n"; show_usage(); return(1); }
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "--verbose") {
       if(i+1 < argc) { verbose = stoi(argv[++i]); i++; }
       else { cerr << "ERROR: -verbose requires a number\n"; show_usage(); return(1); }
@@ -175,15 +183,27 @@ int main(int argc, char *argv[])
   }
   cout << "MJD range: " << fixed << setprecision(5) << min_mjd << " to " << max_mjd << "\n";
 
+  // Compute window origin: either min_mjd or snapped to local noon
+  double win_origin = min_mjd;
+  if(!isnan(noon_local_offset)) {
+    double noon_utc_frac = fmod((12.0 - noon_local_offset) / 24.0, 1.0);
+    if(noon_utc_frac < 0.0) noon_utc_frac += 1.0;
+    win_origin = floor(min_mjd) + noon_utc_frac;
+    if(win_origin > min_mjd) win_origin -= 1.0;
+    cout << "Noon-local snapping: UTC offset = " << noon_local_offset
+         << " h, noon at MJD fractional " << fixed << setprecision(5) << noon_utc_frac
+         << ", window origin = " << win_origin << "\n";
+  }
+
   // Compute number of windows
-  long numwin = (long)ceil((max_mjd - min_mjd) / window_days);
+  long numwin = (long)ceil((max_mjd - win_origin) / window_days);
   if(numwin < 1) numwin = 1;
   cout << "Splitting into up to " << numwin << " windows of " << window_days << " days each\n";
 
   // Assign each image to a window
   vector<long> img_win(nimages);
   for(i = 0; i < nimages; i++) {
-    long w = (long)floor((images[i].MJD - min_mjd) / window_days);
+    long w = (long)floor((images[i].MJD - win_origin) / window_days);
     if(w < 0) w = 0;
     if(w >= numwin) w = numwin - 1;
     img_win[i] = w;
@@ -191,6 +211,7 @@ int main(int argc, char *argv[])
 
   // Assign each tracklet to a window based on its first image (Img1)
   vector<long> trk_win(ntracklets);
+  long cross_boundary_count = 0;
   for(long t = 0; t < ntracklets; t++) {
     long img1 = tracklets[t].Img1;
     if(img1 < 0 || img1 >= nimages) {
@@ -204,10 +225,16 @@ int main(int argc, char *argv[])
       return(1);
     }
     if(img_win[img2] != trk_win[t]) {
-      cerr << "Warning: tracklet " << t << " spans window boundary (Img1 in window "
-           << trk_win[t] << ", Img2 in window " << img_win[img2] << "). "
-           << "Consider using a larger -window value.\n";
+      cross_boundary_count++;
+      if(verbose >= 1) {
+        cerr << "Warning: tracklet " << t << " spans window boundary (Img1 in window "
+             << trk_win[t] << ", Img2 in window " << img_win[img2] << ")\n";
+      }
     }
+  }
+  if(cross_boundary_count > 0) {
+    cerr << "Warning: " << cross_boundary_count << " of " << ntracklets
+         << " tracklets span a window boundary. Consider -noon_local or a larger -window.\n";
   }
 
   // Partition trk2det entries by window (single pass)
@@ -361,8 +388,8 @@ int main(int argc, char *argv[])
 
     windows_written++;
     cout << "Window " << (w+1) << " [" << fixed << setprecision(3)
-         << (min_mjd + w * window_days) << " to "
-         << (min_mjd + (w+1) * window_days) << "]: "
+         << (win_origin + w * window_days) << " to "
+         << (win_origin + (w+1) * window_days) << "]: "
          << win_imgs.size() << " images, "
          << win_dets.size() << " pairdets, "
          << win_trks.size() << " tracklets, "
