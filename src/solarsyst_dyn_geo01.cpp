@@ -24023,7 +24023,10 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
   pairdets={};
   indvecs = {};
   ivec1={};
-  
+  pairdets.reserve(detvec.size());
+  indvecs.reserve(detvec.size());
+  pairvec.reserve(detvec.size() * 4);
+
   //for(long i=0;i<long(detvec.size());i++) {
   //    cout  << fixed << setprecision(6) << i << ": " << detvec[i].image << " "  << detvec[i].index << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << "\n";
   //  }
@@ -32007,8 +32010,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -32301,27 +32303,14 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
       status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
+      // sanity check performed inside find_pairs()
+
       status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
 
       if(status!=0) {
@@ -32340,27 +32329,14 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
       status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
+      // sanity check performed inside find_pairs()
+
       status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
 
       if(status!=0) {
@@ -32372,8 +32348,7 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
       // and re-write the indices of the trk2det vector accordingly
     
       // Create a vector of -1s, of the same length as pairdets_temp.
-      vector <long> detloaded;
-      for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+      vector <long> detloaded(pairdets_temp.size(), -1);
       if(detloaded.size() != pairdets_temp.size()) {
 	cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
 	return(5);
@@ -32527,8 +32502,7 @@ int make_tracklets6c(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -32623,31 +32597,18 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     // pure find_pairs5() algorithm should be selected using config.use_lowmem to 1.
 
     vector <hldet> pairdets_temp;
-    
+
     // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
     // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
     // and the vector pairvec of type longpair, giving all the pairs of detections.
     status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
     if(status!=0) {
       cerr << "ERROR: find_pairs reports failure status " << status << "\n";
       return(status);
     }
 
-    // Sanity-check indvecs
-    cout << "make_tracklets is sanity-checking indvecs\n";
-    long detnum = indvecs.size();
-    long detct=0;
-    for(detct=0; detct<detnum; detct++) {
-      for(i=0; i<long(indvecs[detct].size()); i++) {
-	if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	  cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	  cerr << "Acceptable range is 0 to " << detnum << "\n";
-	  return(9);
-	}
-      }
-    }
-    cout << "Sanity-check finished\n";
+    // sanity check performed inside find_pairs()
 
     // Calculate the extent of image overlap, to avoid writing out two-point tracklets
     // in areas with large numbers of overlapping images.
@@ -32668,8 +32629,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -32716,27 +32676,14 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
       status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
+      // sanity check performed inside find_pairs()
+
       status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
 
       if(status!=0) {
@@ -32755,27 +32702,14 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
       status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
+      // sanity check performed inside find_pairs()
+
       status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
 
       if(status!=0) {
@@ -32787,8 +32721,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // and re-write the indices of the trk2det vector accordingly
     
       // Create a vector of -1s, of the same length as pairdets_temp.
-      vector <long> detloaded;
-      for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+      vector <long> detloaded(pairdets_temp.size(), -1);
       if(detloaded.size() != pairdets_temp.size()) {
 	cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
 	return(5);
@@ -33054,8 +32987,7 @@ int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log,
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);

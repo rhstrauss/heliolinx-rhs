@@ -16,7 +16,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: link_planarity_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list -simptype simplex_type -rejfrac max fraction of points that can be rejected -rejnum max number of points that can be rejected -max_astrom_rms max astrometric RMS (arcsec) -oop RMS out of plane deviation -minobsnights min number of distinct nights -minpointnum min number of individual detections -useorbMJD 1=use_orbitMJD_if_available -ptpow point_num_exponent -nightpow night_num_exponent -timepow timespan_exponent -rmspow astrom_rms_exponent -maxrms maxrms -ecc_penalty ecc_penalty -outsum summary_file -clust2det clust2detfile -heliovane 1 -verbose verbosity\n\nOR, at minimum:\nlink_planarity_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list\n";
+  cerr << "Usage: link_planarity_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list -simptype simplex_type -rejfrac max fraction of points that can be rejected -rejnum max number of points that can be rejected -max_astrom_rms max astrometric RMS (arcsec) -oop RMS out of plane deviation -minobsnights min number of distinct nights -minpointnum min number of individual detections -useorbMJD 1=use_orbitMJD_if_available -ptpow point_num_exponent -nightpow night_num_exponent -timepow timespan_exponent -rmspow astrom_rms_exponent -maxrms maxrms -ecc_penalty ecc_penalty -outsum summary_file -clust2det clust2detfile -heliovane 1 -n_workers num_omp_threads -verbose verbosity\n\nOR, at minimum:\nlink_planarity_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list\n";
 }
 
 int main(int argc, char *argv[])
@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
   long clustnum=0;
   int status=0;
   long clustct=0;
+  int n_workers=0; // 0 = leave OMP defaults / OMP_NUM_THREADS env alone
   int default_simptype, default_ptpow, default_nightpow, default_timepow;
   default_simptype = default_ptpow = default_nightpow = default_timepow = 1;
   int default_rmspow, default_maxrms, default_max_oop, default_sumfile, default_clust2det;
@@ -270,6 +271,16 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-n_workers" || string(argv[i]) == "-nworkers" || string(argv[i]) == "-nw" || string(argv[i]) == "-nthreads" || string(argv[i]) == "-threads" || string(argv[i]) == "--n_workers" || string(argv[i]) == "--nworkers" || string(argv[i]) == "--threads") {
+      if(i+1 < argc) {
+	n_workers=stoi(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "n_workers keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--VERB" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--verbose") {
       if(i+1 < argc) {
 	config.verbose=stoi(argv[++i]);
@@ -370,6 +381,13 @@ int main(int argc, char *argv[])
   else cout << "output clust2det file " << outclust2detfile << "\n";
 
   if(config.use_heliovane==1) cout << "Expecting input from heliovane rather than heliolinc\n";
+
+  if(n_workers > 0) {
+    omp_set_num_threads(n_workers);
+    cout << "Explicitly setting OpenMP thread count to " << n_workers << " (via -n_workers)\n";
+  } else {
+    cout << "OpenMP thread count left to runtime default (OMP_NUM_THREADS or omp_get_num_procs())\n";
+  }
 
   image_log={};
   status=read_image_file2(imfile, image_log);
