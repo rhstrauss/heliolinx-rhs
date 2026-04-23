@@ -112,107 +112,52 @@ string char64_getstring(const char64_index &ci) {
 // on, they can only be used in zero-indexed loops.
 void make_ivec(long nx, vector <int> &ivec)
 {
-  long i=0;
-  ivec={};
-  for(i=0;i<nx;i++) ivec.push_back(0);
+  ivec.assign(nx, 0);
 }
 
 void make_imat(int nx, int ny, vector <vector <int>> &imat)
 {
-  int i=0;
-  int j=0;
-  vector <int> tvec;
-  imat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0);
-    imat.push_back(tvec);
-  }
+  imat.assign(nx, vector<int>(ny, 0));
 }
 
 void make_lvec(int nx, vector <long> &lvec)
 {
-  int i=0;
-  lvec={};
-  for(i=0;i<nx;i++) lvec.push_back(0);
+  lvec.assign(nx, 0);
 }
 
 void make_lmat(int nx, int ny, vector <vector <long>> &lmat)
 {
-  int i=0;
-  int j=0;
-  vector <long> tvec;
-  lmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0);
-    lmat.push_back(tvec);
-  }
+  lmat.assign(nx, vector<long>(ny, 0));
 }
 
 void make_cvec(int nx, vector <char> &cvec)
 {
-  int i=0;
-  cvec={};
-  for(i=0;i<nx;i++) cvec.push_back('\0');
+  cvec.assign(nx, '\0');
 }
 
 void make_cmat(int nx, int ny, vector <vector <char>> &cmat)
 {
-  int i=0;
-  int j=0;
-  vector <char> tvec;
-  cmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back('\0');
-    cmat.push_back(tvec);
-  }
+  cmat.assign(nx, vector<char>(ny, '\0'));
 }
 
 void make_dvec(int nx, vector <double> &dvec)
 {
-  int i=0;
-  dvec={};
-  for(i=0;i<nx;i++) dvec.push_back(0.0);
+  dvec.assign(nx, 0.0);
 }
 
 void make_dmat(int nx, int ny, vector <vector <double>> &dmat)
 {
-  int i=0;
-  int j=0;
-  vector <double> tvec;
-  dmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0.0);
-    dmat.push_back(tvec);
-  }
+  dmat.assign(nx, vector<double>(ny, 0.0));
 }
 
 void make_LDvec(int nx, vector <long double> &ldvec)
 {
-  int i=0;
-  ldvec={};
-  for(i=0;i<nx;i++) ldvec.push_back(0.0l);
+  ldvec.assign(nx, 0.0l);
 }
 
 void make_LDmat(int nx, int ny, vector <vector <long double>> &ldmat)
 {
-  int i=0;
-  int j=0;
-  vector <long double> tvec;
-  ldmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0.0l);
-    ldmat.push_back(tvec);
-  }
+  ldmat.assign(nx, vector<long double>(ny, 0.0l));
 }
 
 double dotprod3d(point3d p1, point3d p2)
@@ -663,7 +608,9 @@ int splitxy(const vector <xy_index> &xyvec, int dim, long unsigned int splitpoin
   long unsigned int i=0;
   double xval = xyvec[splitpoint].x;
   double yval = xyvec[splitpoint].y;
-  
+
+  left.reserve(xyvec.size());
+  right.reserve(xyvec.size());
   if(dim%2==1) {
     // Split on x
     for(i=0 ; i<xyvec.size() ; i++) {
