@@ -7,7 +7,7 @@
 #
 
 PREFIX ?= ..
-CXXFLAGS ?= -O3
+CXXFLAGS ?= -O3 -march=native
 
 ###
 
