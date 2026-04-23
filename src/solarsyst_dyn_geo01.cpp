@@ -24181,7 +24181,7 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
   if(verbose>=1) cout << "Test count of pairs: " << pairct << " " << pairvec.size() << "\n";
 
   // Sanity-check indvecs
-  cout << "find_pairs is sanity-checking indvecs\n";
+  if(verbose>=0) cout << "find_pairs is sanity-checking indvecs\n";
   long detnum = indvecs.size();
   long i = 0;
   for(detct=0; detct<detnum; detct++) {
@@ -24193,8 +24193,8 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
       }
     }
   }
-  cout << "Sanity-check finished\n";
-  
+  if(verbose>=0) cout << "Sanity-check finished\n";
+
   return(0);
 }
 
@@ -28499,7 +28499,7 @@ int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vec
   if(verbose>=1) cout << "Test count of pairs: " << pairct << " " << pairvec.size() << "\n";
 
   // Sanity-check indvecs
-  cout << "find_pairs is sanity-checking indvecs\n";
+  if(verbose>=0) cout << "find_pairs is sanity-checking indvecs\n";
   long detnum = indvecs.size();
   long i = 0;
   for(detct=0; detct<detnum; detct++) {
@@ -28511,8 +28511,8 @@ int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vec
       }
     }
   }
-  cout << "Sanity-check finished\n";
-  
+  if(verbose>=0) cout << "Sanity-check finished\n";
+
   return(0);
 }
 
@@ -40030,7 +40030,7 @@ int heliolinc_alg_omp3(const vector <hlimage> &image_log, const vector <hldet> &
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40194,7 +40194,7 @@ int heliolinc_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40362,7 +40362,7 @@ int heliolinc_alg_ompkd(const vector <hlimage> &image_log, const vector <hldet> 
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40532,7 +40532,7 @@ int heliolinc_alg_ompkd3(const vector <hlimage> &image_log, const vector <hldet>
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -41177,7 +41177,7 @@ int heliolinc_alg_ompkd4(const vector <hlimage> &image_log, const vector <hldet>
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -41952,7 +41952,7 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -42891,7 +42891,7 @@ int heliovane_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
       clust2det_mat[threadct]={};
       lmct = threadct + cyclect*nt;
       if(lmct<lambdanum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << lmct << ": " << lambdahyp[lmct].HelioRad << " deg, " << lambdahyp[lmct].R_dot << " deg/day " << lambdahyp[lmct].R_dubdot << " deg/day^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << lmct << ": " << lambdahyp[lmct].HelioRad << " deg, " << lambdahyp[lmct].R_dot << " deg/day " << lambdahyp[lmct].R_dubdot << " deg/day^2\n";
       }
     }
     #pragma omp parallel
@@ -57164,7 +57164,7 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
