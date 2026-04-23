@@ -15,6 +15,7 @@
 #include <forward_list>
 #include <vector>
 #include <unordered_map>
+#include <set>
 #include <algorithm>
 #include <array>
 #include <regex>
@@ -851,6 +852,20 @@ public:
   double z;
   point3d(double x, double y, double z) :x(x), y(y), z(z) { }
   point3d() = default;
+};
+
+// TrackletProjCache: pre-computed hypothesis-invariant quantities for each tracklet.
+// Compute once before the hypothesis loop with precompute_tracklet_proj_cache().
+struct TrackletProjCache {
+  point3d unitbary1;    // unit sky vector at (RA1, Dec1)
+  point3d obsbary1;     // observer barycentric position at observation 1 (km)
+  double b1;            // 2 * dot(unitbary1, obsbary1)
+  double barydist2_1;   // dot(obsbary1, obsbary1)
+  point3d unitbary2;    // unit sky vector at (RA2, Dec2)
+  point3d obsbary2;     // observer barycentric position at observation 2 (km)
+  double b2;            // 2 * dot(unitbary2, obsbary2)
+  double barydist2_2;   // dot(obsbary2, obsbary2)
+  double ang_rate_rad_per_day; // observed angular rate of the tracklet (rad/day)
 };
 
 class point3d_index{ // Double-precision 3-D point with long-integer idex
@@ -1792,6 +1807,7 @@ int helioproj01(point3d unitbary, point3d obsbary,double heliodist,double &geodi
 int helioproj01LD(point3LD unitbary, point3LD obsbary, long double heliodist, long double &geodist, point3LD &projbary);
 int helioproj02LD(point3LD unitbary, point3LD obsbary, long double heliodist, vector <long double> &geodist, vector <point3LD> &projbary);
 int helioproj02(point3d unitbary, point3d obsbary, double heliodist, vector <double> &geodist, vector <point3d> &projbary);
+int helioproj02_fast(point3d unitbary, point3d obsbary, double b_pre, double barydist2, double heliodist, vector <double> &geodist, vector <point3d> &projbary);
 int accelcalc01LD(int planetnum, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const point3LD &targpos, point3LD &accel);
 int integrate_orbit_constac(int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, long double mjdstart, point3LD startpos, point3LD startvel, long double mjdend, point3LD &endpos, point3LD &endvel);
 long double kep_transcendental(long double q, long double e, long double tol);
@@ -1965,6 +1981,10 @@ int remake_tracklets(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vecto
 int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
 int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
+// Cached overload: uses pre-computed hypothesis-invariant quantities (Opt 1 + Opt 2).
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, const vector <TrackletProjCache> &cache, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
+// Pre-compute per-tracklet hypothesis-invariant quantities for caching across hypotheses.
+int precompute_tracklet_proj_cache(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, vector <TrackletProjCache> &cache);
 int trk2statevec_clusterprobe(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
 int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
 int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose);

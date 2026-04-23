@@ -7620,6 +7620,83 @@ int helioproj02(point3d unitbary, point3d obsbary, double heliodist, vector <dou
   return(-1);
 }
 
+// helioproj02_fast: like helioproj02 but uses pre-computed invariants (b_pre, barydist2)
+// to avoid recomputing dot products that are invariant across hypotheses.
+// b_pre = 2*dot(unitbary, obsbary); barydist2 = dot(obsbary, obsbary).
+int helioproj02_fast(point3d unitbary, point3d obsbary, double b_pre, double barydist2,
+                     double heliodist, vector <double> &geodist, vector <point3d> &projbary)
+{
+  double alphapos, alphaneg;
+  point3d barypos = point3d(0.0l,0.0l,0.0l);
+
+  // Clear outputs
+  geodist = {};
+  projbary = {};
+
+  double c = barydist2 - heliodist*heliodist;
+  double disc = b_pre*b_pre - 4.0l*c;  // a=1
+
+  if(disc >= 0.0l) {
+    double sqrtdisc = sqrt(disc);
+    alphapos = (-b_pre + sqrtdisc)*0.5l;
+    if(alphapos > 0.0l) {
+      geodist.push_back(alphapos);
+      barypos.x = obsbary.x + alphapos*unitbary.x;
+      barypos.y = obsbary.y + alphapos*unitbary.y;
+      barypos.z = obsbary.z + alphapos*unitbary.z;
+      projbary.push_back(barypos);
+      alphaneg = (-b_pre - sqrtdisc)*0.5l;
+      if(alphaneg > 0.0l) {
+        geodist.push_back(alphaneg);
+        barypos.x = obsbary.x + alphaneg*unitbary.x;
+        barypos.y = obsbary.y + alphaneg*unitbary.y;
+        barypos.z = obsbary.z + alphaneg*unitbary.z;
+        projbary.push_back(barypos);
+        return(2);
+      }
+      return(1);
+    }
+  }
+  // No valid solution
+  barypos = point3d(0.0l,0.0l,-10000.0l);
+  projbary.push_back(barypos);
+  geodist.push_back(10000.0);
+  return(-1);
+}
+
+// precompute_tracklet_proj_cache: compute hypothesis-invariant quantities for all tracklets.
+// Call once before the hypothesis loop; pass the result to the cache overload of trk2statevec_fgfuncRR.
+int precompute_tracklet_proj_cache(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, vector <TrackletProjCache> &cache)
+{
+  long pairnum = tracklets.size();
+  cache.resize(pairnum);
+  for(long pairct = 0; pairct < pairnum; pairct++) {
+    long i1 = tracklets[pairct].Img1;
+    long i2 = tracklets[pairct].Img2;
+    // Endpoint 1
+    celestial_to_stateunit(tracklets[pairct].RA1, tracklets[pairct].Dec1, cache[pairct].unitbary1);
+    cache[pairct].obsbary1 = point3d(image_log[i1].X, image_log[i1].Y, image_log[i1].Z);
+    cache[pairct].barydist2_1 = dotprod3d(cache[pairct].obsbary1, cache[pairct].obsbary1);
+    cache[pairct].b1 = 2.0l * dotprod3d(cache[pairct].unitbary1, cache[pairct].obsbary1);
+    // Endpoint 2
+    celestial_to_stateunit(tracklets[pairct].RA2, tracklets[pairct].Dec2, cache[pairct].unitbary2);
+    cache[pairct].obsbary2 = point3d(image_log[i2].X, image_log[i2].Y, image_log[i2].Z);
+    cache[pairct].barydist2_2 = dotprod3d(cache[pairct].obsbary2, cache[pairct].obsbary2);
+    cache[pairct].b2 = 2.0l * dotprod3d(cache[pairct].unitbary2, cache[pairct].obsbary2);
+    // Angular rate (rad/day) for hypothesis-level pre-filtering
+    double dRA = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+    if(dRA > 180.0) dRA -= 360.0;
+    if(dRA < -180.0) dRA += 360.0;
+    double dDec = tracklets[pairct].Dec2 - tracklets[pairct].Dec1;
+    double meanDec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2) * M_PI / 180.0;
+    // Convert to arc (degrees), treating dRA as great-circle separation component
+    double sep_deg = sqrt(DSQUARE(dRA*cos(meanDec)) + DSQUARE(dDec));
+    double dt_days = image_log[i2].MJD - image_log[i1].MJD;
+    cache[pairct].ang_rate_rad_per_day = (dt_days > 0.0) ? (sep_deg * M_PI / 180.0 / dt_days) : 0.0;
+  }
+  return(0);
+}
+
 
 // accelcalc01LD: December 01, 2021
 // Given a vector of planet positions for a particular instant in time,
@@ -33771,6 +33848,223 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
   return(0);
 }
 
+// trk2statevec_fgfuncRR (cache overload): uses pre-computed TrackletProjCache to skip
+// per-hypothesis celestial_to_stateunit and dot-product recomputation (Opt 1),
+// and applies an angular velocity pre-filter to skip implausible tracklets (Opt 2).
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, const vector <TrackletProjCache> &cache, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler)
+{
+  allstatevecs={};
+  long imnum = image_log.size();
+  long imct=0;
+  long pairnum = tracklets.size();
+  long pairct=0;
+  int badpoint=0;
+  int status1=0;
+  int status2=0;
+  int num_dist_solutions=0;
+  int solnct=0;
+  double mjdavg=0l;
+  vector <double> heliodistvec;
+  double delta1 = 0.0l;
+  long i1,i2;
+  i1=i2=0;
+  point6dx2 statevec1 = point6dx2(0l,0l,0l,0l,0l,0l,0,0);
+  point6ix2 stateveci = point6ix2(0,0,0,0,0,0,0,0);
+  point3d observerpos1 = point3d(0l,0l,0l);
+  point3d observerpos2 = point3d(0l,0l,0l);
+  point3d targpos1 = point3d(0l,0l,0l);
+  point3d targvel1 = point3d(0l,0l,0l);
+  point3d targpos2 = point3d(0l,0l,0l);
+  vector <point3d> targposvec1;
+  vector <point3d> targposvec2;
+  int glob_warning=0;
+  vector <double> deltavec1;
+  vector <double> deltavec2;
+  vector <double> mjdvec;
+  double absvelocity=0l;
+  double impactpar=0l;
+  double timediff=0l;
+  double E = 0.0l;
+  double v_inf = 0.0l;
+
+  // Load the two reference times into mjdvec
+  mjdvec={};
+  mjdvec.push_back(mjdref-chartimescale/SOLARDAY);
+  mjdvec.push_back(mjdref+chartimescale/SOLARDAY);
+
+  // Calculate approximate heliocentric distances from the
+  // input quadratic approximation.
+  heliodistvec={};
+  if(NotKepler) {
+    for(imct=0;imct<imnum;imct++) {
+      delta1 = image_log[imct].MJD - mjdref;
+      heliodistvec.push_back(heliodist + heliovel*delta1 + 0.5*helioacc*delta1*delta1);
+      if(heliodistvec[imct]<=0.0l) {
+	badpoint=1;
+	return(1);
+      }
+    }
+  } else {
+    double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist);
+    double physacc = helioacc/DSQUARE(SOLARDAY);
+    double vesc = 2.0*GMSUN_KM3_SEC2/heliodist;
+    double tanvel = heliodist*(physacc+localg);
+    if(tanvel<0.0l) {
+      cerr << fixed << setprecision(6) << "ERROR: hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << " is not possible for any trajectory\n";
+      return(1);
+    }
+    if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+      cerr << fixed << setprecision(6) << "ERROR: hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << " is not possible for a bound orbit\n";
+      return(1);
+    }
+    tanvel = sqrt(tanvel);
+    point3d startpos = point3d(heliodist,0l,0l);
+    point3d startvel = point3d(heliovel/SOLARDAY,tanvel,0l);
+    point3d endpos = point3d(0l,0l,0l);
+    point3d endvel = point3d(0l,0l,0l);
+    for(imct=0;imct<imnum;imct++) {
+      status1 = Kepler_fg_func_int(GMSUN_KM3_SEC2, mjdref, startpos, startvel, image_log[imct].MJD, endpos, endvel);
+      if(status1!=0) {
+	cerr << "ERROR: Keplerian integration failed for r(t) hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << ", at MJD = " << image_log[imct].MJD << "\n";
+	return(status1);
+      }
+      heliodistvec.push_back(vecabs3d(endpos));
+    }
+  }
+  if(badpoint==0 && long(heliodistvec.size())!=imnum) {
+    cerr << "ERROR: number of heliocentric distance values does\n";
+    cerr << "not match the number of input images!\n";
+    return(2);
+  }
+
+  // Angular velocity pre-filter threshold (Opt 2): max plausible rate at this heliodist.
+  // omega_circ = sqrt(GM_sun / r_h^3) rad/s, converted to rad/day, with 5x safety factor.
+  double omega_max_rad_per_day = 5.0 * sqrt(GMSUN_KM3_SEC2 / (heliodist*heliodist*heliodist)) * SOLARDAY;
+
+  {
+    int ntp = omp_in_parallel() ? 1 : omp_get_max_threads();
+    vector<vector<point6ix2>> thr_svecs(ntp);
+    #pragma omp parallel for schedule(dynamic,64) if(!omp_in_parallel()) \
+      private(badpoint, status1, status2, num_dist_solutions, solnct, mjdavg, \
+              i1, i2, targposvec1, targposvec2, \
+              glob_warning, deltavec1, deltavec2, absvelocity, impactpar, timediff, E, v_inf)
+    for(pairct=0; pairct<pairnum; pairct++) {
+      int tid = omp_in_parallel() ? 0 : omp_get_thread_num();
+      badpoint=0;
+      point6dx2 statevec1(0l,0l,0l,0l,0l,0l,0,0);
+      point6ix2 stateveci(0,0,0,0,0,0,0,0);
+      point3d observerpos1(0l,0l,0l);
+      point3d observerpos2(0l,0l,0l);
+      point3d targpos1(0l,0l,0l);
+      point3d targpos2(0l,0l,0l);
+      point3d targvel1(0l,0l,0l);
+
+      // Opt 2: skip tracklets whose observed rate is physically impossible at this heliodist
+      if(cache[pairct].ang_rate_rad_per_day > omega_max_rad_per_day) continue;
+
+      i1=tracklets[pairct].Img1;
+      i2=tracklets[pairct].Img2;
+      observerpos1 = cache[pairct].obsbary1;
+      targposvec1 = {};
+      deltavec1 = {};
+      status1 = helioproj02_fast(cache[pairct].unitbary1, observerpos1,
+                                  cache[pairct].b1, cache[pairct].barydist2_1,
+                                  heliodistvec[i1], deltavec1, targposvec1);
+      observerpos2 = cache[pairct].obsbary2;
+      targposvec2 = {};
+      deltavec2 = {};
+      status2 = helioproj02_fast(cache[pairct].unitbary2, observerpos2,
+                                  cache[pairct].b2, cache[pairct].barydist2_2,
+                                  heliodistvec[i2], deltavec2, targposvec2);
+      if(status1 > 0 && status2 > 0 && badpoint==0) {
+        // Calculate time difference between the observations
+        timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
+        // Did helioproj find two solutions in both cases, or only one?
+        num_dist_solutions = status1;
+        if(num_dist_solutions > status2) num_dist_solutions = status2;
+        // Loop over solutions (num_dist_solutions can only be 1 or 2).
+        for(solnct=0; solnct<num_dist_solutions; solnct++) {
+	  // Calculate the object's v_inf relative to the sun.
+	  targpos1 = targposvec1[solnct];
+	  targpos2 = targposvec2[solnct];
+
+	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	  targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	  targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	  targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	  E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
+	  if(E>0.0l) v_inf = sqrt(2.0l*E);
+	  else if(!isnormal(E)) v_inf=0.0l;
+	  else v_inf = -sqrt(-2.0l*E);
+	  if(v_inf>max_v_inf) continue;
+
+	  glob_warning=0;
+	  if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+	    targpos1.x -= observerpos1.x;
+	    targpos1.y -= observerpos1.y;
+	    targpos1.z -= observerpos1.z;
+
+	    targpos2.x -= observerpos2.x;
+	    targpos2.y -= observerpos2.y;
+	    targpos2.z -= observerpos2.z;
+
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    absvelocity = vecabs3d(targvel1);
+	    impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
+	    targpos1.x -= impactpar*targvel1.x/absvelocity;
+	    targpos1.y -= impactpar*targvel1.y/absvelocity;
+	    targpos1.z -= impactpar*targvel1.z/absvelocity;
+	    impactpar  = vecabs3d(targpos1);
+	    if(impactpar<=minimpactpar) {
+	      glob_warning=1;
+	    }
+	  }
+	  if(!glob_warning) {
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	    targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	    targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	    // Integrate orbit to the reference times.
+	    mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
+	    vector <point3d> targposvec;
+	    vector <point3d> targvelvec;
+	    status1 = Kepler_fg_func_vec(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdvec,targposvec,targvelvec);
+	    if(status1 == 0 && badpoint==0) {
+	      statevec1 = point6dx2(targposvec[0].x,targposvec[0].y,targposvec[0].z,targposvec[1].x,targposvec[1].y,targposvec[1].z,pairct,0);
+	      stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
+	      thr_svecs[tid].push_back(stateveci);
+	    } else {
+	      continue;
+	    }
+	  }
+        }
+      } else {
+        badpoint=1;
+        continue;
+      }
+    }
+    for(int t=0; t<ntp; t++)
+      allstatevecs.insert(allstatevecs.end(), thr_svecs[t].begin(), thr_svecs[t].end());
+  }
+  return(0);
+}
+
 
 // trk2statevec_clusterprobe: February 26, 2024:
 // Convert tracklets to statevectors, but not for regular
@@ -57451,6 +57745,12 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     cout << "Reference MJD = " << config.MJDref << "\n";
   }
 
+  // Pre-compute hypothesis-invariant tracklet projection quantities (Opt 1 + Opt 2)
+  vector<TrackletProjCache> trk_cache;
+  if(use_univar == 2) {
+    precompute_tracklet_proj_cache(image_log, tracklets, trk_cache);
+  }
+
   // Shared error flag; set nonzero by any thread on fatal error
   int global_error = 0;
 
@@ -57475,7 +57775,8 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
       thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
     } else if(use_univar == 2) {
-      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+      // Use pre-computed cache to skip redundant trig/dot-product ops (Opt 1 + Opt 2)
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, trk_cache, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
     } else if(use_univar == 3) {
       thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
     } else {
