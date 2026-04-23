@@ -24195,6 +24195,88 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
   return(0);
 }
 
+// find_pairs_omp: March 24, 2026. Parallelizes find_pairs over independent
+// time groups. Images separated by a gap > maxtime cannot produce cross-group
+// pairs (find_pairs only pairs image A with later image B within maxtime), so
+// each group accesses a disjoint range of detvec and can be processed by a
+// separate OMP thread. Results are merged with index offsets after the parallel
+// section.
+int find_pairs_omp(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <vector <long>> &indvecs, vector <longpair> &pairvec, double mintime, double maxtime, double imrad, double maxvel, int verbose)
+{
+  int imnum = img_log.size();
+
+  // Initialize all detvec index fields to a known negative state so that
+  // find_pairs can correctly detect "not yet paired" detections.
+  for(long i = 0; i < long(detvec.size()); i++) detvec[i].index = -i - 1;
+
+  // Partition images into independent groups separated by gaps > maxtime.
+  // Within a group all images are within maxtime of their neighbors, so
+  // cross-group pairings cannot occur.
+  vector<int> grp_start, grp_end;
+  grp_start.push_back(0);
+  for(int i = 1; i < imnum; i++) {
+    if(img_log[i].MJD - img_log[i-1].MJD > maxtime) {
+      grp_end.push_back(i);
+      grp_start.push_back(i);
+    }
+  }
+  grp_end.push_back(imnum);
+  int ngroups = (int)grp_start.size();
+  if(verbose>=0) cout << "find_pairs_omp: " << ngroups << " independent time groups\n";
+
+  // Per-group result buffers
+  vector<vector<hldet>>          grp_pairdets(ngroups);
+  vector<vector<vector<long>>>   grp_indvecs(ngroups);
+  vector<vector<longpair>>       grp_pairvec(ngroups);
+  vector<int>                    grp_status(ngroups, 0);
+
+  // Process groups in parallel. Each group accesses a disjoint set of
+  // detvec entries (guaranteed by time-sorted detvec + gap partitioning).
+  #pragma omp parallel for schedule(dynamic,1)
+  for(int g = 0; g < ngroups; g++) {
+    vector<hlimage> sub_img(img_log.begin() + grp_start[g],
+                            img_log.begin() + grp_end[g]);
+    grp_status[g] = find_pairs(detvec, sub_img,
+                               grp_pairdets[g], grp_indvecs[g], grp_pairvec[g],
+                               mintime, maxtime, imrad, maxvel, /*verbose=*/-1);
+  }
+
+  // Check for errors
+  for(int g = 0; g < ngroups; g++) {
+    if(grp_status[g] != 0) {
+      cerr << "ERROR: find_pairs failed for time group " << g << " with status " << grp_status[g] << "\n";
+      return(grp_status[g]);
+    }
+  }
+
+  // Serial merge: concatenate per-group results, offsetting all indices.
+  pairdets = {};
+  indvecs  = {};
+  pairvec  = {};
+  for(int g = 0; g < ngroups; g++) {
+    long offset = (long)pairdets.size();
+    long gsize  = (long)grp_pairdets[g].size();
+    // Append pairdets, fixing .index to global position
+    for(long k = 0; k < gsize; k++) {
+      grp_pairdets[g][k].index = offset + k;
+      pairdets.push_back(grp_pairdets[g][k]);
+    }
+    // Append indvecs with offset
+    for(auto &ivec : grp_indvecs[g]) {
+      vector<long> shifted;
+      shifted.reserve(ivec.size());
+      for(long idx : ivec) shifted.push_back(idx + offset);
+      indvecs.push_back(move(shifted));
+    }
+    // Append pairvec with offset
+    for(auto &p : grp_pairvec[g]) {
+      pairvec.push_back(longpair(p.i1 + offset, p.i2 + offset));
+    }
+  }
+  if(verbose>=0) cout << "find_pairs_omp: merged " << ngroups << " groups -> " << pairdets.size() << " paired detections, " << pairvec.size() << " pairs\n";
+  return(0);
+}
+
 
 //find_pairs2: July 21, 2025:  Create pairs, output a vector pairdets of type hldet;
 // a vector indvecs of type vector <long>, with the same length as pairdets,
@@ -32672,7 +32754,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
-      status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+      status = find_pairs_omp(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
 
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
@@ -32694,11 +32776,11 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // load a temporary version of pairdets, which must be culled afterwards.
 
       vector <hldet> pairdets_temp;
-    
+
       // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
-      status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+      status = find_pairs_omp(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
 
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
