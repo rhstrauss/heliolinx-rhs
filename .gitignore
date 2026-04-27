@@ -16,6 +16,36 @@ src/link_planarity
 src/parse_clust2det_MPC80
 src/parse_clust2det_new
 
+# compiled PROGRAMS (built by src/Makefile; not tracked in git)
+src/analyze_linkage01a
+src/calc_heliohypmat
+src/helio_highgrade
+src/helio_highgrade_omp
+src/heliolinc
+src/heliolinc_estimate
+src/heliolinc_lowmem
+src/heliolinc_lowmem_omp
+src/heliolinc_omp
+src/heliovane
+src/label_hldet
+src/label_hldet_mpc
+src/link_planarity_omp
+src/link_purify_chisq
+src/link_purify_omp
+src/make_hypmask
+src/make_outim
+src/make_tracklets
+src/make_tracklets_omp
+src/make_trailed_tracklets
+src/merge_det_catalogs
+src/merge_tracklet_files
+src/modsplit_hlfile
+src/parse_clust2det
+src/parse_trk2det
+src/prefilter_tracklets
+src/quota_test
+src/split_tracklets_by_time
+
 # the static library
 src/libheliolinx.a
 
