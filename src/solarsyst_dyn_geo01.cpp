@@ -57817,12 +57817,20 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
   return(0);
 }
 
-// heliolinc_alg_omp_lowmem_streaming: March 2026
-// Like heliolinc_alg_omp_lowmem, but uses schedule(dynamic) and writes each
-// hypothesis result directly to disk immediately after completion, freeing
-// per-thread memory before the next hypothesis is picked up. This avoids
-// accumulating all results in RAM. Output is one file pair per hypothesis:
-//   {outsum_prefix}_{N}.txt  and  {clust2det_prefix}_{N}.csv
+// heliolinc_alg_omp_lowmem_streaming: March 2026, revised April 2026
+// Like heliolinc_alg_omp_lowmem, but uses schedule(dynamic) and accumulates
+// all per-hypothesis cluster results in memory, then writes two bundled output
+// files after the parallel region completes. This eliminates the file-storm
+// that occurred when each of ~43k hypotheses opened two files concurrently on
+// GPFS, causing severe metadata contention and I/O-bound thread stalls.
+// Output is one file pair total:
+//   {outsum_prefix}.txt  (all hypotheses concatenated, ordered by hyp index)
+//   {clust2det_prefix}.csv
+// The lflist passed to link_purify_chisq should therefore contain exactly one
+// line pointing at these two files (the clusternum offset logic in
+// link_purify_chisq still works correctly since all records from a single run
+// share a monotonically increasing clusternum already enforced by
+// form_clusters_*_lowmem).
 // There is no cross-hypothesis deduplication; that is left to link_planarity
 // or link_purify, exactly as in the Python Pool approach.
 int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix)
@@ -57938,6 +57946,14 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
   cout << "nthreads = " << nt << "\n";
   cout << "Processing " << accelnum << " hypotheses with dynamic scheduling\n";
 
+  // Pre-allocate per-hypothesis result buffers (indexed by hypothesis number).
+  // Each thread writes only to its own slot — no mutex needed for the data.
+  // Using string buffers avoids 85k file opens on GPFS that caused severe
+  // metadata contention and D-state I/O stalls on the 42,943-hypothesis grid.
+  vector<string> hyp_sum_bufs(accelnum);   // formatted sum lines, one string per hyp
+  vector<string> hyp_c2d_bufs(accelnum);   // formatted c2d lines, one string per hyp
+  vector<long>   hyp_clustcounts(accelnum, 0L); // linkage count per hyp, for logging
+
   #pragma omp parallel for schedule(dynamic)
   for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
     if(global_error) continue; // skip remaining work if a fatal error occurred
@@ -57996,20 +58012,16 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
     thread_clust2det.clear();
     thread_clust2det.shrink_to_fit();
 
-    // --- write output files directly to disk ---
-    string sumfile    = outsum_prefix    + "_" + to_string(thread_accelct) + ".txt";
-    string c2dfile    = clust2det_prefix + "_" + to_string(thread_accelct) + ".csv";
-
+    // --- format output into in-memory string buffers (no file I/O here) ---
+    // Each hypothesis writes to its own pre-allocated slot: lock-free.
     {
-      ofstream outstream1(sumfile);
-      outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+      ostringstream sum_buf;
       for(long clusterct=0; clusterct<long(thread_outclust.size()); clusterct++) {
         // Derive fields that shortclust doesn't store directly
         vector <long> clustind = tracklet_lookup(thread_clust2det_long, long(thread_outclust[clusterct].clusternum));
         long uniquepoints = clustind.size();
         vector <double> clustmjd;
         string rating = "PURE";
-        string prev_id = "";
         for(long j=0; j<uniquepoints; j++) {
           clustmjd.push_back(detvec[clustind[j]].MJD);
           if(j>0 && stringnmatch01(detvec[clustind[j]].idstring, detvec[clustind[j-1]].idstring, SHORTSTRINGLEN)!=0) rating="MIXED";
@@ -58024,25 +58036,28 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
         float posRMS = thread_outclust[clusterct].posRMS;
         float totRMS = thread_outclust[clusterct].totRMS;
         float velRMS = (totRMS>posRMS) ? sqrt(totRMS*totRMS - posRMS*posRMS) : 0.0f;
-        outstream1 << fixed << setprecision(3) << thread_outclust[clusterct].clusternum << "," << posRMS << "," << velRMS << "," << totRMS << ",";
-        outstream1 << fixed << setprecision(4) << 0.0 << ","; // astromRMS not available in lowmem
-        outstream1 << fixed << setprecision(6) << thread_outclust[clusterct].pairnum << "," << timespan << "," << uniquepoints << "," << obsnights << "," << thread_outclust[clusterct].metric << "," << rating << ",";
-        outstream1 << fixed << setprecision(6) << config.MJDref << "," << heliodist[thread_accelct]/AU_KM << "," << heliovel[thread_accelct]/SOLARDAY << "," << helioacc[thread_accelct]*1000.0/SOLARDAY/SOLARDAY << ",";
-        outstream1 << fixed << setprecision(1) << thread_outclust[clusterct].posX << "," << thread_outclust[clusterct].posY << "," << thread_outclust[clusterct].posZ << ",";
-        outstream1 << fixed << setprecision(4) << thread_outclust[clusterct].velX << "," << thread_outclust[clusterct].velY << "," << thread_outclust[clusterct].velZ << ",";
-        outstream1 << fixed << setprecision(6) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << ","; // orbit fields not available in lowmem
-        outstream1 << fixed << setprecision(1) << 0.0 << "," << 0.0 << "," << 0.0 << ",";
-        outstream1 << fixed << setprecision(4) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0 << "\n";
+        sum_buf << fixed << setprecision(3) << thread_outclust[clusterct].clusternum << "," << posRMS << "," << velRMS << "," << totRMS << ",";
+        sum_buf << fixed << setprecision(4) << 0.0 << ","; // astromRMS not available in lowmem
+        sum_buf << fixed << setprecision(6) << thread_outclust[clusterct].pairnum << "," << timespan << "," << uniquepoints << "," << obsnights << "," << thread_outclust[clusterct].metric << "," << rating << ",";
+        sum_buf << fixed << setprecision(6) << config.MJDref << "," << heliodist[thread_accelct]/AU_KM << "," << heliovel[thread_accelct]/SOLARDAY << "," << helioacc[thread_accelct]*1000.0/SOLARDAY/SOLARDAY << ",";
+        sum_buf << fixed << setprecision(1) << thread_outclust[clusterct].posX << "," << thread_outclust[clusterct].posY << "," << thread_outclust[clusterct].posZ << ",";
+        sum_buf << fixed << setprecision(4) << thread_outclust[clusterct].velX << "," << thread_outclust[clusterct].velY << "," << thread_outclust[clusterct].velZ << ",";
+        sum_buf << fixed << setprecision(6) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << ","; // orbit fields not available in lowmem
+        sum_buf << fixed << setprecision(1) << 0.0 << "," << 0.0 << "," << 0.0 << ",";
+        sum_buf << fixed << setprecision(4) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0 << "\n";
       }
+      hyp_sum_bufs[thread_accelct] = sum_buf.str();
     }
 
     {
-      ofstream outstream2(c2dfile);
-      outstream2 << "#clusternum,detnum\n";
+      ostringstream c2d_buf;
       for(long k=0; k<long(thread_clust2det_long.size()); k++) {
-        outstream2 << thread_clust2det_long[k].i1 << "," << thread_clust2det_long[k].i2 << "\n";
+        c2d_buf << thread_clust2det_long[k].i1 << "," << thread_clust2det_long[k].i2 << "\n";
       }
+      hyp_c2d_bufs[thread_accelct] = c2d_buf.str();
     }
+
+    hyp_clustcounts[thread_accelct] = thread_realclusternum;
 
     // Free remaining per-thread allocations before picking up next hypothesis
     thread_outclust.clear();
@@ -58052,11 +58067,49 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
 
     #pragma omp critical
     {
-      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_realclusternum << " linkages -> " << sumfile << "\n";
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_realclusternum << " linkages\n";
     }
   } // end parallel for
 
   if(global_error) return(global_error);
+
+  // --- Serial flush: write both bundled output files ---
+  // Two open() calls total regardless of hypothesis count.
+  // Output file names use the prefix directly (no per-hyp suffix).
+  string sumfile_out = outsum_prefix    + ".txt";
+  string c2dfile_out = clust2det_prefix + ".csv";
+
+  cout << "Writing bundled sum file: " << sumfile_out << "\n";
+  {
+    ofstream outstream1(sumfile_out);
+    if(!outstream1) {
+      cerr << "ERROR: cannot open bundled sum output file " << sumfile_out << "\n";
+      return(1);
+    }
+    outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+    for(long i=0; i<accelnum; i++) {
+      outstream1 << hyp_sum_bufs[i];
+    }
+  }
+
+  cout << "Writing bundled clust2det file: " << c2dfile_out << "\n";
+  {
+    ofstream outstream2(c2dfile_out);
+    if(!outstream2) {
+      cerr << "ERROR: cannot open bundled clust2det output file " << c2dfile_out << "\n";
+      return(1);
+    }
+    outstream2 << "#clusternum,detnum\n";
+    for(long i=0; i<accelnum; i++) {
+      outstream2 << hyp_c2d_bufs[i];
+    }
+  }
+
+  long total_links = 0;
+  for(long i=0; i<accelnum; i++) total_links += hyp_clustcounts[i];
+  cout << "Bundled output complete. Total linkages across all hypotheses: " << total_links << "\n";
+  cout << "Sum file: " << sumfile_out << "\nClust2det file: " << c2dfile_out << "\n";
+
   return(0);
 }
 
