@@ -37429,8 +37429,39 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
   kdnum=kdct=clustptct=0;
   vector <long> linkdet_temp;
 
+  // Build CSR-style offset index into trk2det (sorted by i1) so each
+  // tracklet->detection lookup is O(1) instead of a binary search.
+  long trk2det_sz = long(trk2det.size());
+  long trk2det_maxid = (trk2det_sz > 0) ? trk2det.back().i1 : -1;
+  vector<long> trk2det_start(trk2det_maxid + 2, trk2det_sz);
+  if(trk2det_sz > 0) {
+    long cur = -1;
+    for(long ix = 0; ix < trk2det_sz; ix++) {
+      long t = trk2det[ix].i1;
+      if(t != cur) {
+        for(long g = cur+1; g <= t; g++) trk2det_start[g] = ix;
+        cur = t;
+      }
+    }
+    for(long g = cur+1; g <= trk2det_maxid+1; g++) trk2det_start[g] = trk2det_sz;
+  }
+
+  // Pre-compute geocentric distance (AU) for every state vector once to avoid
+  // repeating conv_6i_to_6d + sqrt inside each geocentric bin iteration.
+  const long N_sv = long(allstatevecs.size());
+  vector<double> sv_geodist(N_sv);
+  {
+    const double erx = Earthrefpos.x, ery = Earthrefpos.y, erz = Earthrefpos.z;
+    for(long ii = 0; ii < N_sv; ii++) {
+      double dx = allstatevecs[ii].x * INTEGERIZING_SCALEFAC - erx;
+      double dy = allstatevecs[ii].y * INTEGERIZING_SCALEFAC - ery;
+      double dz = allstatevecs[ii].z * INTEGERIZING_SCALEFAC - erz;
+      sv_geodist[ii] = sqrt(dx*dx + dy*dy + dz*dz) / AU_KM;
+    }
+  }
+
   // Loop over geocentric bins, selecting the subset of state-vectors
-  // in each bin, and running the k-d range query only on those, 
+  // in each bin, and running the k-d range query only on those,
   // with clustering radius adjusted accordingly.
 
   // Sanity check the logarithmic geocentric distance framework to avoid a
@@ -37447,21 +37478,15 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
   while(georadcen<=maxgeodist && georadct<=georadnum) {
     georadct++;
     georadcen = mingeodist*intpowD(geologstep,georadct-1);
-    if(verbose>=0) cout  << fixed << setprecision(2) << "Geocentric distance step " << georadct << ", bin-center distance is " << georadcen << " AU\n";
+    if(verbose>=1) cout  << fixed << setprecision(2) << "Geocentric distance step " << georadct << ", bin-center distance is " << georadcen << " AU\n";
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
-    // Load new array of state vectors, limited to those in the current geocentric bin
+    // Select state vectors in this geocentric bin using precomputed distances.
     vector <point6ix2> binstatevecs;
-    for(i=0; i<long(allstatevecs.size()); i++) {
-      // Reverse integerization of the state vector.
-      // This is only possible to a crude approximation, of course.
-      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
-      // Calculate geocentric distance in AU
-      geodist = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
-      if(geodist >= georadmin && geodist <= georadmax) {
-	// This state vector is in the geocentric radius bin we are currently considering.
-	// Add it to binstatevecs.
-	binstatevecs.push_back(allstatevecs[i]);
+    binstatevecs.reserve(N_sv / 4);
+    for(long ii=0; ii<N_sv; ii++) {
+      if(sv_geodist[ii] >= georadmin && sv_geodist[ii] <= georadmax) {
+	binstatevecs.push_back(allstatevecs[ii]);
       }
     }
     if(verbose>=1) cout  << fixed << setprecision(2) << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
@@ -37487,10 +37512,12 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
 	if(verbose>=1) cout << "minimum fixed clustrad = " << clustrad << "\n";
       }
       // Loop over all points in the k-d tree.
+      vector <long> clustindvec;
+      vector <long> clustindvec2;
       for(kdct=0; kdct<kdnum; kdct++) {
 	// Range-query current point.
 	querypoint = kdtree[kdct].point;
-	queryout = {};
+	queryout.clear();
 	kdrange_6i01(kdtree, querypoint, clustrad/INTEGERIZING_SCALEFAC, queryout);
 	if(long(queryout.size()) > kdnum) {
 	  cerr << "ERROR: kdrange query appears to have returned more points (" << queryout.size() << ")\n";
@@ -37500,33 +37527,38 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
 	if(long(queryout.size()) >= npt) {
 	  // This point is the core of a cluster. Output all the detection indices include in it.
 	  if(verbose>=1) cout << "Point " << kdct << ": cluster core with " << queryout.size() << " neighbors.\n";
-	  // Loop on points in cluster.
-	  vector <long> clustindvec;
+	  // Expand cluster points to detection indices via CSR index (O(1) per tracklet).
+	  clustindvec.clear();
+	  clustindvec.reserve(queryout.size() * 2);
 	  for(clustptct=0; clustptct<long(queryout.size()); clustptct++) {
-	    pairct=kdtree[queryout[clustptct]].point.i1;
-	    if(DEBUG >= 2) cout << "Looking up tracklet " << pairct << " out of " << tracklets.size() << "\n";
-	    vector <long> pointjunk;
-	    pointjunk = tracklet_lookup(trk2det, pairct);
-	    if(DEBUG >= 2) cout << "Found " << pointjunk.size() << " detections for tracklet " << pairct << "\n";
-	    if(pointjunk.size()<=0) {
-	      cerr << "ERROR: no detections found for tracklet " << pairct << "\n";
+	    long trknum = kdtree[queryout[clustptct]].point.i1;
+	    if(trknum < 0 || trknum >= long(trk2det_start.size())-1) {
+	      cerr << "ERROR: tracklet number " << trknum << " out of range\n";
 	      return(4);
 	    }
-	    for(j=0; j<long(pointjunk.size()); j++) {
-	      clustindvec.push_back(pointjunk[j]);
+	    long lo = trk2det_start[trknum];
+	    long hi = trk2det_start[trknum + 1];
+	    if(lo == hi) {
+	      cerr << "ERROR: no detections found for tracklet " << trknum << "\n";
+	      return(4);
 	    }
-	    // Close loop over tracklets in the cluster
+	    for(long ix=lo; ix<hi; ix++) {
+	      clustindvec.push_back(trk2det[ix].i2);
+	    }
 	  }
 	  if(clustindvec.size()>0) {
 	    // De-duplicate clustindvec
 	    sort(clustindvec.begin(),clustindvec.end());
-	    vector <long> clustindvec2;
+	    clustindvec2.clear();
 	    clustindvec2.push_back(clustindvec[0]);
 	    for(j=1;j<long(clustindvec.size());j++) {
 	      if(clustindvec[j] != clustindvec2[clustindvec2.size()-1]) clustindvec2.push_back(clustindvec[j]);
 	    }
-	    long obsnum = clustindvec2.size();
-	    if(obsnum>=minobsnum) {
+	    // No minobsnum check here: heliolinc re-applies it on its own clusters.
+	    // Checking it per-core-neighborhood would drop detections from objects
+	    // whose full DBSCAN cluster passes minobsnum but no individual core's
+	    // neighborhood does (e.g. chained sparse clusters).
+	    {
 	      vector <double> mjdvec;
 	      for(j=0; j<long(clustindvec2.size()); j++) mjdvec.push_back(detvec[clustindvec2[j]].MJD);
 	      sort(mjdvec.begin(),mjdvec.end());

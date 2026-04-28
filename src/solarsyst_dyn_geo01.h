@@ -451,6 +451,16 @@ struct HeliolincConfig {
                                // we set it to positive values. In this case it is also necessary
                                // to set use_univar=1, since only the universal variable formulation
                                // can handle unbound orbits.
+  double min_geodist_filter = 0.0l; // Minimum geocentric distance (AU) for filtering tracklets.
+                                    // 0.0 = disabled (no filtering).
+  long max_statevecs_per_bin = 0l;  // Maximum state vectors per geocentric distance bin.
+                                    // 0 = disabled (no cap).
+  string hypinds_file = "";    // Optional file listing hypothesis indices to use (one per line).
+                               // Empty = use all hypotheses.
+  double min_RA = 0.0l;        // Minimum RA (degrees) for sky region filter. 0.0 = no filter.
+  double max_RA = 360.0l;      // Maximum RA (degrees) for sky region filter. 360.0 = no filter.
+  double min_Dec = -90.0l;     // Minimum Dec (degrees) for sky region filter.
+  double max_Dec = 90.0l;      // Maximum Dec (degrees) for sky region filter.
   int verbose=0;
 };
 
