@@ -58232,8 +58232,6 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
   #pragma omp parallel
   { nt = omp_get_num_threads(); }
   cout << "nthreads = " << nt << "\n";
-  long thread_clustnum = inclustnum/nt;
-  while(nt*thread_clustnum < inclustnum) thread_clustnum++;
 
   {
     vector <hlclust> ov1;
@@ -58297,11 +58295,16 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
     long i=0; // thread-private loop variable (shared i at function scope is a data race)
 
     int status1=0; // for Keplerian integration return codes
-    long firstclust = thread_clustnum*ithread;
-    long lastclust = thread_clustnum*(ithread+1);
-    if(lastclust>inclustnum) lastclust=inclustnum;
 
-    for(inclustct=firstclust; inclustct<lastclust; inclustct++) {
+    // Dynamic schedule (chunk=32): per-cluster cost varies widely
+    // (RMS-reject early-out vs full Keplerian+Herget simplex; bothcases
+    // doubles work). Static contiguous partition left threads idle when
+    // expensive clusters bunched together. Per-thread accumulators below
+    // are indexed by ithread and require no locking. NOTE: output order
+    // in holdclust_mat is no longer monotone in inclustct under dynamic
+    // scheduling; downstream consumers must not rely on input ordering.
+    #pragma omp for schedule(dynamic, 32) nowait
+    for(inclustct=0; inclustct<inclustnum; inclustct++) {
       onecluster = inclust[inclustct];
       obsnights = onecluster.obsnights;
       if(inclustct!=onecluster.clusternum) {
