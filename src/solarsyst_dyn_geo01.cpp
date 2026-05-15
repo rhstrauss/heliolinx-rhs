@@ -58785,16 +58785,16 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
     }
   }
 
-  // Concatenate per-thread results
+  // Concatenate per-thread results. Preserve the original inclust
+  // clusternum on each cluster (do NOT overwrite with post-merge
+  // position) so we have a deterministic per-cluster identifier
+  // independent of the OMP schedule.
   holdclust={};
   clustindmat={};
   clusterct=0;
   for(threadct=0; threadct<nt; threadct++) {
-    long clusternum = holdclust.size();
     for(long ii=0;ii<long(holdclust_mat[threadct].size());ii++) {
-      hlclust oc = holdclust_mat[threadct][ii];
-      oc.clusternum = clusternum+ii;
-      holdclust.push_back(oc);
+      holdclust.push_back(holdclust_mat[threadct][ii]);
     }
     for(long ii=0;ii<long(clustindmat_mat[threadct].size());ii++) {
       clustindmat.push_back(clustindmat_mat[threadct][ii]);
@@ -58802,6 +58802,29 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
   }
   holdclust_mat={};
   clustindmat_mat={};
+
+  // Sort the merged (holdclust, clustindmat) pair by the preserved
+  // inclust clusternum so the input to the metric-sort/dedup pass
+  // below is deterministic. Without this, dynamic OMP scheduling
+  // produces non-deterministic merge order, and std::sort tiebreaking
+  // on equal-metric clusters (common with coarse metric values)
+  // selects different survivors in the detection-greedy dedup.
+  {
+    long N = long(holdclust.size());
+    vector<long> perm(N);
+    for(long pi=0; pi<N; pi++) perm[pi]=pi;
+    std::sort(perm.begin(), perm.end(), [&holdclust](long a, long b){
+      return holdclust[a].clusternum < holdclust[b].clusternum;
+    });
+    vector<hlclust> hc_sorted; hc_sorted.reserve(N);
+    vector<vector<long>> cim_sorted; cim_sorted.reserve(N);
+    for(long pi=0; pi<N; pi++) {
+      hc_sorted.push_back(holdclust[perm[pi]]);
+      cim_sorted.push_back(clustindmat[perm[pi]]);
+    }
+    holdclust = std::move(hc_sorted);
+    clustindmat = std::move(cim_sorted);
+  }
 
   long clusternum = holdclust.size();
   cout << "Finished loading input clusters: " << clusternum << " out of " << inclustnum << " passed initial screening.\n";
