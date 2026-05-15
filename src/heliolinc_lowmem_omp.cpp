@@ -180,7 +180,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -verbose verbosity\n";
+  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -streaming yes|no(default_yes:per-hyp_intermediate_files) -dedup yes|no(default_yes:cross-hyp_collapse_to_single_deduped_pair) -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -219,6 +219,27 @@ int main(int argc, char *argv[])
   long clustct=0;
   int status=0;
   int n_workers=0; // 0 = leave OMP defaults / OMP_NUM_THREADS env alone
+  int streaming=1; // 1 = (default) per-hypothesis streaming output: writes
+                   //     2*accelnum small files inside the OMP region,
+                   //     freeing buffers as it goes. Keeps peak RAM bounded
+                   //     to ~one hypothesis's surviving clusters at a time;
+                   //     required for LSST-scale untrailed runs producing
+                   //     millions of pre-purify clusters. Cost: 2*accelnum
+                   //     small files on disk, which causes severe GPFS
+                   //     metadata contention on hypothesis grids of ~10^4+.
+                   // 0 = bundled output: in-RAM cluster accumulator, single
+                   //     output pair {prefix}.txt / {prefix}.csv. Lower
+                   //     I/O footprint; use when total surviving clusters
+                   //     across all hyps comfortably fit in RAM.
+  int do_dedup=1;  // 1 = (default) collapse cross-hypothesis duplicate
+                   //     detection sets, keeping lowest-metric cluster per set,
+                   //     and write a single deduped {prefix}.txt/.csv pair.
+                   //     Applies regardless of streaming mode; in streaming
+                   //     mode the per-hyp intermediate files are still written
+                   //     but a serial post-parallel pass produces the deduped
+                   //     bundled artifact too.
+                   // 0 = no cross-hyp dedup; defer to link_planarity /
+                   //     link_purify_chisq downstream.
   
   i=1;
   while(i<argc) {
@@ -513,6 +534,40 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-dedup" || string(argv[i]) == "--dedup" || string(argv[i]) == "-postdedup" || string(argv[i]) == "--postdedup") {
+      if(i+1 < argc) {
+	string sval = argv[++i];
+	if(sval=="yes" || sval=="y" || sval=="1" || sval=="true" || sval=="on") do_dedup = 1;
+	else if(sval=="no" || sval=="n" || sval=="0" || sval=="false" || sval=="off") do_dedup = 0;
+	else {
+	  cerr << "ERROR: -dedup expects yes|no (or 1|0); got '" << sval << "'\n";
+	  show_usage();
+	  return(1);
+	}
+	i++;
+      }
+      else {
+	cerr << "dedup keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-streaming" || string(argv[i]) == "--streaming" || string(argv[i]) == "-stream" || string(argv[i]) == "--stream") {
+      if(i+1 < argc) {
+	string sval = argv[++i];
+	if(sval=="yes" || sval=="y" || sval=="1" || sval=="true" || sval=="on") streaming = 1;
+	else if(sval=="no" || sval=="n" || sval=="0" || sval=="false" || sval=="off") streaming = 0;
+	else {
+	  cerr << "ERROR: -streaming expects yes|no (or 1|0); got '" << sval << "'\n";
+	  show_usage();
+	  return(1);
+	}
+	i++;
+      }
+      else {
+	cerr << "streaming keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
@@ -680,7 +735,19 @@ int main(int argc, char *argv[])
   cout << "Read " << trk2det.size() << " data lines from trk2det file " << trk2detfile << "\n";
   cout << "output summary file prefix " << sumfile << "\n";
   cout << "output clust2det file prefix " << clust2detfile << "\n";
-  cout << "Output files will be named {prefix}_{N}.txt / {prefix}_{N}.csv per hypothesis\n";
+  if(streaming) {
+    cout << "Streaming mode (default): per-hypothesis intermediate files {prefix}_{N}.txt / {prefix}_{N}.csv\n";
+    cout << "  (memory-bounded during parallel region; safe for LSST-scale runs)\n";
+  } else {
+    cout << "Bundled mode: in-RAM cluster accumulator, single output pair {prefix}.txt / {prefix}.csv\n";
+    cout << "  (IO-friendly; preferred for trailed and other low-cluster-volume runs)\n";
+  }
+  if(do_dedup) {
+    cout << "Cross-hypothesis dedup: ENABLED. Final artifact = single deduped pair {prefix}.txt / {prefix}.csv\n";
+    if(streaming) cout << "  (per-hyp intermediates remain on disk; bundled deduped pair produced by serial post-pass)\n";
+  } else {
+    cout << "Cross-hypothesis dedup: DISABLED. Cross-hyp duplicates left for downstream link_planarity / link_purify_chisq.\n";
+  }
 
   if(n_workers > 0) {
     omp_set_num_threads(n_workers);
@@ -689,10 +756,18 @@ int main(int argc, char *argv[])
     cout << "OpenMP thread count left to runtime default (OMP_NUM_THREADS or omp_get_num_procs())\n";
   }
 
-  status=heliolinc_alg_omp_lowmem_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile);
-  if(status!=0) {
-    cerr << "ERROR: heliolinc_alg_omp_lowmem_streaming failed with status " << status << "\n";
-    return(status);
+  if(streaming) {
+    status=heliolinc_alg_omp_lowmem_perhyp(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
+    if(status!=0) {
+      cerr << "ERROR: heliolinc_alg_omp_lowmem_perhyp failed with status " << status << "\n";
+      return(status);
+    }
+  } else {
+    status=heliolinc_alg_omp_lowmem_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
+    if(status!=0) {
+      cerr << "ERROR: heliolinc_alg_omp_lowmem_streaming failed with status " << status << "\n";
+      return(status);
+    }
   }
 
   return(0);
