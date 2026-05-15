@@ -58312,7 +58312,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         error_cases[ithread] = 5;
       }
       // Load a vector with the indices to detvec
-      clustind = {};
+      clustind.clear();
       clustind = tracklet_lookup(inclust2det, onecluster.clusternum);
       ptnum = clustind.size();
       if(ptnum!=onecluster.uniquepoints) {
@@ -58320,12 +58320,12 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         error_cases[ithread] = 6;
       }
       if(onecluster.totRMS > config.maxrms && onecluster.obsnights>=config.minobsnights && onecluster.uniquepoints>=config.minpointnum) {
-        if(config.verbose>0 || inclustct%1000==0) cout << "Thread " << ithread << " cluster " << inclustct << " of " << inclustnum << ": RMS = " << onecluster.totRMS << "km is too high: REJECTED.\n";
+        if(config.verbose>=1) cout << "Thread " << ithread << " cluster " << inclustct << " of " << inclustnum << ": RMS = " << onecluster.totRMS << "km is too high: REJECTED.\n";
         continue;
       }
       // If we get here, the cluster passes the initial cut. Analyze it.
       badcluster=0;
-      clusterdets = clusterdets2 = {};
+      clusterdets.clear(); clusterdets2.clear();
       for(i=0; i<ptnum; i++) {
         clusterdets.push_back(detvec[clustind[i]]);
         clusterdets[i].index=clustind[i];
@@ -58337,9 +58337,9 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
       }
 
       // PLANARITY CHECK — identical logic to link_planarity()
-      heliopos1 = {};
-      heliopos2 = {};
-      heliodistvec={};
+      heliopos1.clear();
+      heliopos2.clear();
+      heliodistvec.clear();
       bothcases=0;
       if(config.use_heliovane!=1) {
         // heliolinc branch: compute heliocentric distance at each point, then project
@@ -58394,8 +58394,8 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           if(kepfail!=0) continue;
         }
         // Project observations onto the heliocentric sphere
-        heliopos1 = {};
-        heliopos2 = {};
+        heliopos1.clear();
+        heliopos2.clear();
         for(ptct=0; ptct<ptnum; ptct++) {
           imct = clusterdets[ptct].image;
           if(imct>=imnum) {
@@ -58405,8 +58405,8 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           }
           observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
           celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
-          targposvec={};
-          deltavec={};
+          targposvec.clear();
+          deltavec.clear();
           thread_status = helioproj02(unitbary, observernow, heliodistvec[ptct], deltavec, targposvec);
           if(thread_status==1 || thread_status==2) {
             heliopos1.push_back(targposvec[0]);
@@ -58428,7 +58428,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         lambda0 = onecluster.heliohyp0;
         lambda_dot = onecluster.heliohyp1;
         lambda_ddot = onecluster.heliohyp2;
-        lambdavec={};
+        lambdavec.clear();
         for(ptct=0; ptct<ptnum; ptct++) {
           if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
             delta1 = clusterdets[ptct].MJD - onecluster.orbit_MJD;
@@ -58437,8 +58437,8 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           }
           lambdavec.push_back(lambda0 + lambda_dot*delta1 + 0.5*lambda_ddot*delta1*delta1);
         }
-        heliopos1 = {};
-        heliopos2 = {};
+        heliopos1.clear();
+        heliopos2.clear();
         for(ptct=0; ptct<ptnum; ptct++) {
           imct = clusterdets[ptct].image;
           if(imct>=imnum) {
@@ -58448,8 +58448,8 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           }
           observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
           celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
-          targposvec={};
-          deltavec={};
+          targposvec.clear();
+          deltavec.clear();
           targposvec.resize(1);
           deltavec.resize(1);
           thread_status = vaneproj01d(unitbary,observernow,lambdavec[ptct],min_proj_sine,deltavec[0],targposvec[0]);
@@ -58471,7 +58471,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         continue;
       }
       normout1 = 0.0l;
-      planeout1 = {};
+      planeout1.clear();
       for(ptct=0; ptct<ptnum; ptct++) {
         planeout1.push_back(fabs(dotprod3d(heliopos1[ptct],polepos)));
         normout1 += DSQUARE(planeout1[ptct]*AU_KM/vecabs3d(heliopos1[ptct]));
@@ -58482,7 +58482,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
         thread_status = planepolefind(heliopos2,polepos);
         if(thread_status==0) {
           normout2 = 0.0l;
-          planeout2 = {};
+          planeout2.clear();
           for(ptct=0; ptct<ptnum; ptct++) {
             planeout2.push_back(fabs(dotprod3d(heliopos2[ptct],polepos)));
             normout2 += DSQUARE(planeout2[ptct]*AU_KM/vecabs3d(heliopos2[ptct]));
@@ -58497,10 +58497,10 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
       if(normout1 > config.max_oop && (bothcases==0 || normout2 > config.max_oop)) {
         // Cluster failed planarity check; try iterative purification
         if(ptnum <= config.minpointnum) {
-          if(config.verbose>0 || inclustct%1000==0) cout << "Thread " << ithread << " cluster " << inclustct << " too small: REJECTED.\n";
+          if(config.verbose>=1) cout << "Thread " << ithread << " cluster " << inclustct << " too small: REJECTED.\n";
           continue;
         }
-        if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " trying to purify cluster " << inclustct << " with " << ptnum << " points, using planarity\n";
+        if(config.verbose>=1) cout << "Thread " << ithread << " trying to purify cluster " << inclustct << " with " << ptnum << " points, using planarity\n";
         rejnum = 0;
         rejmax = config.rejfrac*ptnum;
         if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
@@ -58524,7 +58524,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           }
           rejnum++;
           ptnum = clusterdets.size();
-          mjdstep={};
+          mjdstep.clear();
           for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(clusterdets[ii].MJD - clusterdets[ii-1].MJD);
           daysteps=0;
           for(long ii=0; ii<long(mjdstep.size()); ii++) { if(mjdstep[ii]>NIGHTSTEP) daysteps++; }
@@ -58533,7 +58533,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
             badcluster=1;
           }
           if(bothcases==1) {
-            mjdstep={};
+            mjdstep.clear();
             for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(clusterdets2[ii].MJD - clusterdets2[ii-1].MJD);
             daysteps=0;
             for(long ii=0; ii<long(mjdstep.size()); ii++) { if(mjdstep[ii]>NIGHTSTEP) daysteps++; }
@@ -58549,7 +58549,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           thread_status = planepolefind(heliopos1,polepos);
           if(thread_status!=0) { cerr << "ERROR: link_planarity_omp planepolefind error " << thread_status << "\n"; badcluster=1; break; }
           normout1 = 0.0l;
-          planeout1 = {};
+          planeout1.clear();
           for(ptct=0; ptct<ptnum; ptct++) {
             planeout1.push_back(fabs(dotprod3d(heliopos1[ptct],polepos)));
             normout1 += DSQUARE(planeout1[ptct]*AU_KM/vecabs3d(heliopos1[ptct]));
@@ -58559,7 +58559,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
             thread_status = planepolefind(heliopos2,polepos);
             if(thread_status==0) {
               normout2 = 0.0l;
-              planeout2 = {};
+              planeout2.clear();
               for(ptct=0; ptct<ptnum; ptct++) {
                 planeout2.push_back(fabs(dotprod3d(heliopos2[ptct],polepos)));
                 normout2 += DSQUARE(planeout2[ptct]*AU_KM/vecabs3d(heliopos2[ptct]));
@@ -58572,8 +58572,8 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           if(normout1<=config.max_oop || (bothcases==1 && normout2<=config.max_oop)) {
             if(bothcases==1 && normout2<normout1) {
               clusterdets = clusterdets2;
-              if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " case2 planarity success: OOP RMS = " << normout2 << " for cluster " << inclustct << "\n";
-            } else if(config.verbose>=1 || inclustct%1000==0) {
+              if(config.verbose>=1) cout << "Thread " << ithread << " case2 planarity success: OOP RMS = " << normout2 << " for cluster " << inclustct << "\n";
+            } else if(config.verbose>=1) {
               cout << "Thread " << ithread << " planarity success: OOP RMS = " << normout1 << " for cluster " << inclustct << "\n";
             }
             badcluster=0;
@@ -58581,7 +58581,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           }
         }
         if(normout1>config.max_oop && (bothcases==0 || normout2>config.max_oop)) {
-          if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " planarity purification failed for cluster " << inclustct << "\n";
+          if(config.verbose>=1) cout << "Thread " << ithread << " planarity purification failed for cluster " << inclustct << "\n";
           badcluster=1;
         }
       } else {
@@ -58593,7 +58593,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
       if(badcluster==1) continue;
 
       // Passed planarity check. Proceed with orbit fitting.
-      clustind = {};
+      clustind.clear();
       for(i=0;i<ptnum;i++) clustind.push_back(clusterdets[i].index);
       istimedup=0;
       for(ptct=1; ptct<ptnum; ptct++) {
@@ -58601,8 +58601,8 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
       }
 
       // Load observational vectors
-      observerpos = {};
-      obsMJD = obsRA = obsDec = sigastrom = fitRA = fitDec = resid = orbit = {};
+      observerpos.clear();
+      obsMJD.clear(); obsRA.clear(); obsDec.clear(); sigastrom.clear(); fitRA.clear(); fitDec.clear(); resid.clear(); orbit.clear();
       for(ptct=0; ptct<ptnum; ptct++) {
         obsMJD.push_back(clusterdets[ptct].MJD);
         obsRA.push_back(clusterdets[ptct].RA);
@@ -58640,24 +58640,24 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
       geodist2 = vecabs3d(endpos)/AU_KM;
 
       simplex_scale = SIMPLEX_SCALEFAC;
-      if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " fitting cluster " << inclustct << " of " << inclustnum << ": ";
+      if(config.verbose>=1) cout << "Thread " << ithread << " fitting cluster " << inclustct << " of " << inclustnum << ": ";
       chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, obsMJD, obsRA, obsDec, sigastrom, config.ecc_penalty, fitRA, fitDec, resid, orbit, config.verbose);
       if(chisq>=LARGERR3) {
         cerr << "WARNING: Hergetfit_vstar() returned error for cluster " << inclustct << "\n";
       }
       chisq /= double(ptnum);
       astromrms = sqrt(chisq);
-      if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+      if(config.verbose>=1) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
 
       if(astromrms <= config.max_astrom_rms && istimedup==0) {
         // Cluster is good without further purification
       } else {
         // Iterative orbit-fitting purification
         if(ptnum <= config.minpointnum) {
-          if(config.verbose>0 || inclustct%1000==0) cout << "Thread " << ithread << " cluster " << inclustct << " too small: REJECTED.\n";
+          if(config.verbose>=1) cout << "Thread " << ithread << " cluster " << inclustct << " too small: REJECTED.\n";
           continue;
         }
-        if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " trying to purify cluster " << inclustct << " with " << ptnum << " points, using orbit-fitting\n";
+        if(config.verbose>=1) cout << "Thread " << ithread << " trying to purify cluster " << inclustct << " with " << ptnum << " points, using orbit-fitting\n";
         rejnum = 0;
         rejmax = config.rejfrac*ptnum;
         if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
@@ -58691,16 +58691,16 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           } else {
             break;
           }
-          mjdstep={};
+          mjdstep.clear();
           for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(obsMJD[ii]-obsMJD[ii-1]);
           daysteps=0;
           for(long ii=0; ii<long(mjdstep.size()); ii++) { if(mjdstep[ii]>NIGHTSTEP) daysteps++; }
           obsnights = daysteps+1;
           if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
-            if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " cluster became invalid, REJECTING\n";
+            if(config.verbose>=1) cout << "Thread " << ithread << " cluster became invalid, REJECTING\n";
             break;
           }
-          clustind = {};
+          clustind.clear();
           for(long ii=0;ii<ptnum;ii++) clustind.push_back(clusterdets[ii].index);
           istimedup=0;
           for(ptct=1; ptct<ptnum; ptct++) {
@@ -58715,14 +58715,14 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
           endpos.x -= observerpos[ptnum-1].x; endpos.y -= observerpos[ptnum-1].y; endpos.z -= observerpos[ptnum-1].z;
           geodist2 = vecabs3d(endpos)/AU_KM;
           simplex_scale = SIMPLEX_SCALEFAC;
-          if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " fitting cluster " << inclustct << " minus " << rejnum << " outliers: ";
+          if(config.verbose>=1) cout << "Thread " << ithread << " fitting cluster " << inclustct << " minus " << rejnum << " outliers: ";
           chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, obsMJD, obsRA, obsDec, sigastrom, config.ecc_penalty, fitRA, fitDec, resid, orbit, config.verbose);
           if(chisq>=LARGERR3) cerr << "WARNING: Hergetfit_vstar() returned error\n";
           chisq /= double(ptnum);
           astromrms = sqrt(chisq);
-          if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+          if(config.verbose>=1) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
           if(astromrms <= config.max_astrom_rms && istimedup==0) {
-            if(config.verbose>=1 || inclustct%1000==0) cout << "Thread " << ithread << " astromrms success for cluster " << inclustct << "\n";
+            if(config.verbose>=1) cout << "Thread " << ithread << " astromrms success for cluster " << inclustct << "\n";
             badcluster=0;
             break;
           }
@@ -58758,7 +58758,7 @@ int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &
       onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow);
       onecluster.orbit_a = orbit[0]/AU_KM;
       onecluster.orbit_e = orbit[1];
-      statevec={};
+      statevec.clear();
       for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
       onecluster.orbit_incl = statevec2kep_incl(statevec);
       onecluster.orbit_MJD = orbit[2];
