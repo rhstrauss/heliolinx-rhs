@@ -57886,10 +57886,27 @@ struct DedupSurvivor {
   vector<long> detlist;     // detection indices, sorted ascending (canonical for hashing)
 };
 
+// Decide whether candidate cluster 'cand' should replace incumbent 'inc' as
+// the survivor for a given detection-set hash.  Lowest metric wins; exact
+// metric ties are broken deterministically by (hypindex, then clusternum).
+// The tie-break makes the survivor the global argmin over (metric, hypindex,
+// clusternum) regardless of the order in which hypotheses are folded, so the
+// dedup result is INDEPENDENT of fold order.  That is what makes the parallel
+// map-reduce + tree-merge below produce byte-identical output to a serial
+// fold.  The legacy serial code used a bare "metric <" test, which on a tie
+// kept whichever hyp was seen first (lowest hyp index, since hyps were folded
+// in index order); the explicit tie-break reproduces that choice exactly.
+static inline bool dedup_cluster_better(const shortclust& cand, const shortclust& inc)
+{
+  if(cand.metric != inc.metric) return cand.metric < inc.metric;
+  if(cand.hypindex != inc.hypindex) return cand.hypindex < inc.hypindex;
+  return cand.clusternum < inc.clusternum;
+}
+
 // Update a survivor map with one hyp's clusters + their c2d rows.
-// Lowest-metric cluster wins on hash collision.  blend_vector is the same
-// hash used by the within-hyp dedup; with sorted detlists it compares
-// detection sets exactly (modulo astronomical-rate hash collisions).
+// Best (per dedup_cluster_better) cluster wins on hash collision.  blend_vector
+// is the same hash used by the within-hyp dedup; with sorted detlists it
+// compares detection sets exactly (modulo astronomical-rate hash collisions).
 static void dedup_update_one_hyp(const vector<shortclust>& clusters,
                                  const vector<longpair>& c2d,
                                  map<long, DedupSurvivor>& survivors)
@@ -57907,11 +57924,44 @@ static void dedup_update_one_hyp(const vector<shortclust>& clusters,
     sort(dets.begin(), dets.end());
     long h = blend_vector(dets);
     map<long, DedupSurvivor>::iterator it = survivors.find(h);
-    if(it == survivors.end() || clusters[ci].metric < it->second.cluster.metric) {
+    if(it == survivors.end() || dedup_cluster_better(clusters[ci], it->second.cluster)) {
       DedupSurvivor s;
       s.cluster = clusters[ci];
       s.detlist = std::move(dets);
       survivors[h] = std::move(s);
+    }
+  }
+}
+
+// Merge survivor map 'src' into 'dst', keeping the better cluster per hash.
+// Order-independent (see dedup_cluster_better), so this is the reduction
+// operator for the parallel per-thread / tree-merge dedup paths.
+static void dedup_merge_into(map<long, DedupSurvivor>& dst,
+                             map<long, DedupSurvivor>& src)
+{
+  for(map<long, DedupSurvivor>::iterator it = src.begin(); it != src.end(); ++it) {
+    map<long, DedupSurvivor>::iterator d = dst.find(it->first);
+    if(d == dst.end() || dedup_cluster_better(it->second.cluster, d->second.cluster)) {
+      dst[it->first] = std::move(it->second);
+    }
+  }
+}
+
+// Deterministic tree reduction over a vector of per-thread survivor maps.
+// Result is left in partials[0]; all other slots are emptied.  Each round
+// halves the number of live maps and merges disjoint index pairs in parallel,
+// so the merge work is itself non-serial.  Determinism is guaranteed by the
+// order-independent reduction operator (dedup_cluster_better).
+static void dedup_tree_merge(vector<map<long, DedupSurvivor>>& partials)
+{
+  long np = long(partials.size());
+  if(np <= 0) return;
+  for(long step = 1; step < np; step *= 2) {
+    long limit = np - step; // OpenMP canonical form needs an invariant bound
+    #pragma omp parallel for schedule(dynamic)
+    for(long j = 0; j < limit; j += 2*step) {
+      dedup_merge_into(partials[j], partials[j+step]);
+      map<long, DedupSurvivor>().swap(partials[j+step]); // free merged-away slot
     }
   }
 }
@@ -58267,23 +58317,46 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
 
   if(do_dedup) {
     // --- Cross-hypothesis dedup, then single bundled flush ---
-    // Streaming over hyp_sum_bufs/hyp_c2d_bufs: process one hyp at a time,
-    // free its slot immediately so peak memory is (survivors + current_hyp).
-    cout << "Cross-hypothesis dedup enabled; processing " << total_raw_links << " raw linkages across " << accelnum << " hypotheses\n";
-    map<long, DedupSurvivor> survivors;
-    for(long i=0; i<accelnum; i++) {
-      if(!hyp_sum_bufs[i].empty()) {
-        dedup_update_one_hyp(hyp_sum_bufs[i], hyp_c2d_bufs[i], survivors);
+    // Parallel map-reduce over the in-RAM per-hyp buffers: each thread folds a
+    // dynamically-assigned slice of hyps into a thread-local survivor map, then
+    // the per-thread maps are combined with a deterministic tree merge.  Each
+    // hyp buffer is freed as soon as it has been folded, so peak extra memory
+    // is ~|survivor set| (split across the thread-local maps), matching the old
+    // serial loop's bound.  Output is byte-identical to a serial fold because
+    // dedup_cluster_better makes the reduction order-independent.
+    double t_dedup0 = omp_get_wtime();
+    int dedup_nt = 1;
+    #pragma omp parallel
+    { dedup_nt = omp_get_num_threads(); }
+    cout << "Cross-hypothesis dedup enabled; processing " << total_raw_links
+         << " raw linkages across " << accelnum << " hypotheses on " << dedup_nt << " threads\n";
+
+    vector<map<long, DedupSurvivor>> partials(dedup_nt);
+    #pragma omp parallel
+    {
+      int tid = omp_get_thread_num();
+      map<long, DedupSurvivor>& local = partials[tid];
+      #pragma omp for schedule(dynamic) nowait
+      for(long i=0; i<accelnum; i++) {
+        if(!hyp_sum_bufs[i].empty()) {
+          dedup_update_one_hyp(hyp_sum_bufs[i], hyp_c2d_bufs[i], local);
+        }
+        // Free this hyp's buffers now to keep peak memory bounded.
+        vector<shortclust>().swap(hyp_sum_bufs[i]);
+        vector<longpair>().swap(hyp_c2d_bufs[i]);
       }
-      // Free this hyp's buffers now to keep peak memory bounded.
-      vector<shortclust>().swap(hyp_sum_bufs[i]);
-      vector<longpair>().swap(hyp_c2d_bufs[i]);
     }
+    dedup_tree_merge(partials);
+    map<long, DedupSurvivor>& survivors = partials[0];
+
     long survivor_count = long(survivors.size());
+    double t_dedup1 = omp_get_wtime();
     if(total_raw_links > 0) {
       cout << "Dedup kept " << survivor_count << " of " << total_raw_links << " raw linkages ("
            << fixed << setprecision(1) << (100.0*survivor_count/double(total_raw_links)) << "%)\n";
     }
+    cout << "Parallel dedup merge wall time: " << fixed << setprecision(2)
+         << (t_dedup1 - t_dedup0) << " s\n";
     int wstat = dedup_write_survivors(survivors, heliodist, heliovel, helioacc, detvec, config.MJDref, sumfile_out, c2dfile_out);
     if(wstat != 0) return wstat;
     return 0;
@@ -58662,36 +58735,77 @@ int heliolinc_alg_omp_lowmem_perhyp(const vector <hlimage> &image_log, const vec
     return(0);
   }
 
-  // --- Serial post-parallel cross-hypothesis dedup pass ---
-  // Read each per-hyp file pair sequentially, fold into a single survivor map,
-  // free the temp data, then write one bundled deduped output pair.
-  // Peak memory across this pass is ~|survivor set|, not |raw cluster set|.
-  cout << "\nStarting post-parallel cross-hypothesis dedup pass over " << accelnum << " per-hyp file pairs\n";
-  map<long, DedupSurvivor> survivors;
+  // --- Parallel post-parallel cross-hypothesis dedup pass ---
+  // The legacy version folded all accelnum per-hyp file pairs into one survivor
+  // map serially.  At LSST/ATLAS hypothesis-grid scale (10^3-10^4 hyps, tens of
+  // GB of per-hyp c2d files) that serial read+fold became the dominant tail of
+  // every streaming run.  We now do a map-reduce: each thread reads a
+  // dynamically-assigned slice of hyps and folds them into a thread-LOCAL
+  // survivor map (parallelizing both the GPFS read I/O and the hashing), then
+  // the per-thread maps are combined with a deterministic parallel tree merge.
+  // This generalizes the "dedup 420 sets of 100, then dedup the 420 results"
+  // idea: dynamic scheduling at per-hyp granularity gives optimal load balance
+  // while keeping the number of partial maps == nthreads, so the final merge is
+  // cheap.  Output is byte-identical to the serial fold (dedup_cluster_better
+  // makes the reduction order-independent).
+  // Peak memory is ~|survivor set| (sum of partials ~ deduped set), not the raw
+  // cluster set, since each per-hyp temp is freed as soon as it is folded.
+  double t_dedup0 = omp_get_wtime();
+  int dedup_nt = 1;
+  #pragma omp parallel
+  { dedup_nt = omp_get_num_threads(); }
+  cout << "\nStarting PARALLEL cross-hypothesis dedup pass over " << accelnum
+       << " per-hyp file pairs on " << dedup_nt << " threads\n";
+
+  vector<map<long, DedupSurvivor>> partials(dedup_nt);
+  vector<long> raw_per_thread(dedup_nt, 0);
+  vector<long> files_per_thread(dedup_nt, 0);
+
+  #pragma omp parallel
+  {
+    int tid = omp_get_thread_num();
+    map<long, DedupSurvivor>& local = partials[tid];
+    long local_raw = 0;
+    long local_files = 0;
+    #pragma omp for schedule(dynamic) nowait
+    for(long i=0; i<accelnum; i++) {
+      string sf = outsum_prefix    + "_" + to_string(i) + ".txt";
+      string cf = clust2det_prefix + "_" + to_string(i) + ".csv";
+      vector<shortclust> clusters;
+      vector<longpair>   c2d;
+      // Note: read_perhyp_*_file emit an ERROR line on a genuinely missing file.
+      // In normal full runs every hyp pair exists; gaps (e.g. resume) are
+      // tolerated by the continue below and are not fatal.
+      if(read_perhyp_sum_file(sf, i, clusters) != 0) continue;
+      if(read_perhyp_c2d_file(cf, c2d) != 0) continue;
+      local_files++;
+      local_raw += long(clusters.size());
+      if(!clusters.empty()) {
+        dedup_update_one_hyp(clusters, c2d, local);
+      }
+      // clusters/c2d freed at loop-iteration scope exit -> peak RAM bounded
+    }
+    raw_per_thread[tid]   = local_raw;
+    files_per_thread[tid] = local_files;
+  }
+
   long total_raw_links = 0;
   long files_read = 0;
-  for(long i=0; i<accelnum; i++) {
-    string sf = outsum_prefix    + "_" + to_string(i) + ".txt";
-    string cf = clust2det_prefix + "_" + to_string(i) + ".csv";
-    vector<shortclust> clusters;
-    vector<longpair>   c2d;
-    int rs = read_perhyp_sum_file(sf, i, clusters);
-    if(rs != 0) { cerr << "WARNING: skipping unreadable per-hyp sum file " << sf << "\n"; continue; }
-    int rc = read_perhyp_c2d_file(cf, c2d);
-    if(rc != 0) { cerr << "WARNING: skipping unreadable per-hyp c2d file " << cf << "\n"; continue; }
-    files_read++;
-    total_raw_links += long(clusters.size());
-    if(!clusters.empty()) {
-      dedup_update_one_hyp(clusters, c2d, survivors);
-    }
-    // temps go out of scope at loop end -> freed
-  }
+  for(int t=0; t<dedup_nt; t++) { total_raw_links += raw_per_thread[t]; files_read += files_per_thread[t]; }
+
+  // Combine per-thread survivor maps -> partials[0]
+  dedup_tree_merge(partials);
+  map<long, DedupSurvivor>& survivors = partials[0];
+
   long survivor_count = long(survivors.size());
+  double t_dedup1 = omp_get_wtime();
   cout << "Read " << files_read << " per-hyp file pairs; " << total_raw_links << " raw linkages\n";
   if(total_raw_links > 0) {
     cout << "Dedup kept " << survivor_count << " of " << total_raw_links << " raw linkages ("
          << fixed << setprecision(1) << (100.0*survivor_count/double(total_raw_links)) << "%)\n";
   }
+  cout << "Parallel dedup read+merge wall time: " << fixed << setprecision(2)
+       << (t_dedup1 - t_dedup0) << " s\n";
   string sumfile_out = outsum_prefix    + ".txt";
   string c2dfile_out = clust2det_prefix + ".csv";
   int wstat = dedup_write_survivors(survivors, heliodist, heliovel, helioacc, detvec, config.MJDref, sumfile_out, c2dfile_out);
