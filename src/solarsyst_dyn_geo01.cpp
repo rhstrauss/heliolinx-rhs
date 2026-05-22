@@ -33422,7 +33422,10 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
   double timediff=0l;
   double E = 0.0l;
   double v_inf = 0.0l;
- 
+  double obstanvel = MAXTANVELCUT;
+  double meanobsdist,trackletarc,trackletangvel;
+  meanobsdist = trackletarc = trackletangvel = 0.0;
+
   // Calculate approximate heliocentric distances from the
   // input quadratic approximation.
   // Note: heliodist is in km, heliovel is in km/day, and helioacc is in km/day^2
@@ -33502,6 +33505,25 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
     targposvec2={};
     deltavec2={};
     status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
+    // Calculate the mean distance from the observer over the two points in the tracklet.
+    // If the projection equations had two solutions (meaning the hypothesis distance was
+    // interior to the Earth), use the larger solutions.
+    meanobsdist = (deltavec1[0] + deltavec2[0])/2.0;
+    if(status1==2 && status2==2 &&  deltavec1[1]>deltavec1[0] && deltavec2[1]>deltavec2[0]) meanobsdist = (deltavec1[1] + deltavec2[1])/2.0;
+    if(minimpactpar > 0.0 && minimpactpar < MAXTANVELCUT && meanobsdist < mingeoobs*AU_KM && status1 > 0 && status2 > 0 && badpoint==0) {
+      // New check added May 13, 2026: Calculate observer-centric tangential velocity,
+      // and reject the point if that is too low. The value of minimpactpar is here
+      // interpreted as a tangential velocity in km/sec, since it is nonzero but too small to
+      // make sense as an impact parameter in km.
+      trackletarc = distradec01(tracklets[pairct].RA1, tracklets[pairct].Dec1, tracklets[pairct].RA2, tracklets[pairct].Dec2)/DEGPRAD; // Tracklet arc in radians
+      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY; // Time difference in seconds
+      trackletangvel = trackletarc/timediff; // radians per second
+      obstanvel = trackletangvel*meanobsdist; // km/sec
+      if(obstanvel<minimpactpar) {
+	// Tangential velocity relative to the observer is too low
+	badpoint=1;
+      }
+    }
     if(status1 > 0 && status2 > 0 && badpoint==0) {
       // Calculate time difference between the observations
       timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;

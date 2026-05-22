@@ -181,6 +181,9 @@ using namespace std;
 #define MAX_SHUTTER_CORR 10.0 // Implied shutter corrections larger than this value,
                               // in seconds, are implausible and will cause link_refine_Herget
                               // to exit with an error.
+#define MAXTANVELCUT 50.0 // Maximum value that can be placed on the minimum tangential velocity in km/sec
+                          // for a valid tracklet in heliolinc. Note that setting it anywhere near
+                          // this would reject almost all tracklets.
 // End parameters related to heliolinc clustering
 
 // Begin set or parameters related to the Everhart (1974) integrator
