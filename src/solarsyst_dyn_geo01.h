@@ -461,6 +461,9 @@ struct HeliolincConfig {
   double max_RA = 360.0l;      // Maximum RA (degrees) for sky region filter. 360.0 = no filter.
   double min_Dec = -90.0l;     // Minimum Dec (degrees) for sky region filter.
   double max_Dec = 90.0l;      // Maximum Dec (degrees) for sky region filter.
+  int dedup = 0;               // If nonzero, heliolinc_lowmem_omp performs cross-hypothesis
+                               // deduplication after streaming per-hypothesis files to disk,
+                               // using a parallel funnel (tournament) reduction across workers.
   int verbose=0;
 };
 
@@ -807,7 +810,12 @@ public:
 class early_hldet{
 public:
   inline bool operator() (const hldet& o1, const hldet& o2) {
-    return(o1.MJD < (o2.MJD-IMAGETIMETOL/SOLARDAY) || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==-1) || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==0 && o1.RA<o2.RA));
+    if(o1.MJD < o2.MJD) return true;
+    if(o1.MJD > o2.MJD) return false;
+    int c = stringnmatch01(o1.obscode, o2.obscode, 3);
+    if(c < 0) return true;
+    if(c > 0) return false;
+    return o1.RA < o2.RA;
   }
 };
 
@@ -835,7 +843,9 @@ public:
 class early_hlimage{
 public:
   inline bool operator() (const hlimage& i1, const hlimage& i2) {
-    return(i1.MJD < i2.MJD || (i1.MJD == i2.MJD && stringnmatch01(i1.obscode,i2.obscode,3)==-1));
+    if(i1.MJD < i2.MJD) return true;
+    if(i1.MJD > i2.MJD) return false;
+    return stringnmatch01(i1.obscode, i2.obscode, 3) < 0;
   }
 };
 
@@ -1978,9 +1988,9 @@ int calculate_overlap(const vector <hldet> &detvec, const vector <hlimage> &img_
 int find_pairs5(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose);
 int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <vector <long>> &indvecs, vector <longpair> &pairvec, double mintime, double maxtime, double imrad, double maxvel, double siglenscale, double sigpascale, int verbose);
 int merge_pairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
-int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
+int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose, const vector<hlimage> &img_log = {});
 int merge_pairs3(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, const vector <int> image_overlap, double trkfrac, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
-int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
+int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose, const vector<hlimage> &img_log = {});
 int find_glints_radec(const vector <point3d_index> &detvec, FindGlintsConfig config, vector <glint_trail> &trailvec, vector <longpair> &trail2det);
 int find_glints_xypix(const vector <point3d_index> &detvec, FindGlintsConfig config, vector <glint_trail> &trailvec, vector <longpair> &trail2det);
 int record_pairs(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vector <tracklet> &tracklets, vector <longpair> &trk2det, int verbose);
@@ -2069,6 +2079,8 @@ int link_purify2(const vector <hlimage> &image_log, const vector <hldet> &detvec
 int link_purify_graddec(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
 int link_purify_quad1(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
 int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
+int link_purify_chisq_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, int nw, vector <hlclust> &outclust, vector <longpair> &outclust2det);
+int link_dedup_funnel(const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, vector <hlclust> &outclust, vector  <longpair> &outclust2det, int nw);
 int link_planarity(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
 int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
 int link_purify_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);

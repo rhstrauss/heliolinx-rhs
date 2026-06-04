@@ -180,7 +180,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -verbose verbosity\n";
+  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -dedup 1=cross-hypothesis_parallel_funnel_dedup -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -513,6 +513,16 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-dedup" || string(argv[i]) == "--dedup" || string(argv[i]) == "-deduplicate" || string(argv[i]) == "--deduplicate") {
+      // Optional boolean flag. Accept an explicit 0/1 argument if one follows,
+      // otherwise treat the bare keyword as "enable".
+      if(i+1 < argc && (string(argv[i+1])=="0" || string(argv[i+1])=="1")) {
+	config.dedup=stoi(argv[++i]);
+	i++;
+      } else {
+	config.dedup=1;
+	i++;
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
@@ -693,6 +703,87 @@ int main(int argc, char *argv[])
   if(status!=0) {
     cerr << "ERROR: heliolinc_alg_omp_lowmem_streaming failed with status " << status << "\n";
     return(status);
+  }
+
+  if(config.dedup) {
+    // --dedup: read back the per-hypothesis streamed files and perform a
+    // cross-hypothesis exact-duplicate deduplication using a parallel funnel
+    // (tournament) reduction across all workers. The streaming step wrote one
+    // file pair per hypothesis: {sumfile}_{N}.txt / {clust2detfile}_{N}.csv.
+    long accelnum = long(radhyp.size());
+    cout << "\n--dedup requested: reading back " << accelnum << " streamed hypothesis file pairs for cross-hypothesis deduplication\n";
+    vector <hlclust> allclust;
+    vector <longpair> allclust2det;
+    vector <hlclust> filevec;
+    vector <longpair> filec2d;
+    long total_input_clusters = 0;
+    for(long h=0; h<accelnum; h++) {
+      string hsum = sumfile + "_" + to_string(h) + ".txt";
+      string hc2d = clust2detfile + "_" + to_string(h) + ".csv";
+      filevec={};
+      status=read_clustersum_file(hsum, filevec, config.verbose);
+      if(status!=0) {
+	cerr << "ERROR: could not read streamed cluster summary file " << hsum << "\n";
+	return(status);
+      }
+      filec2d={};
+      status=read_longpair_file(hc2d, filec2d, config.verbose);
+      if(status!=0) {
+	cerr << "ERROR: could not read streamed clust2det file " << hc2d << "\n";
+	return(status);
+      }
+      // Offset-renumber this file's clusters and append to the master arrays.
+      long clustoff = allclust.size();
+      total_input_clusters += filevec.size();
+      for(long k=0;k<long(filevec.size());k++) {
+	filevec[k].clusternum += clustoff;
+	allclust.push_back(filevec[k]);
+      }
+      for(long k=0;k<long(filec2d.size());k++) {
+	filec2d[k].i1 += clustoff;
+	allclust2det.push_back(filec2d[k]);
+      }
+    }
+    cout << "Read back " << total_input_clusters << " candidate linkages totalling " << allclust2det.size() << " detections from streamed files\n";
+
+    vector <hlclust> dedupclust;
+    vector <longpair> dedupclust2det;
+    status = link_dedup_funnel(allclust, allclust2det, dedupclust, dedupclust2det, n_workers);
+    if(status!=0) {
+      cerr << "ERROR: link_dedup_funnel failed with status " << status << "\n";
+      return(status);
+    }
+    // Free the pre-dedup arrays.
+    allclust.clear(); allclust.shrink_to_fit();
+    allclust2det.clear(); allclust2det.shrink_to_fit();
+    cout << "Parallel funnel deduplication: " << total_input_clusters << " linkages -> " << dedupclust.size() << " unique linkages totalling " << dedupclust2det.size() << " detections\n";
+
+    // Write the deduplicated, merged output.
+    string dedup_sumfile = sumfile + "_dedup.txt";
+    string dedup_c2dfile = clust2detfile + "_dedup.csv";
+    outstream1.open(dedup_sumfile);
+    cout << "Writing " << dedupclust.size() << " lines to deduplicated cluster-summary file " << dedup_sumfile << "\n";
+    outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+    for(clustct=0 ; clustct<long(dedupclust.size()); clustct++) {
+      outstream1 << fixed << setprecision(3) << dedupclust[clustct].clusternum << "," << dedupclust[clustct].posRMS << "," << dedupclust[clustct].velRMS << "," << dedupclust[clustct].totRMS << ",";
+      outstream1 << fixed << setprecision(4) << dedupclust[clustct].astromRMS << ",";
+      outstream1 << fixed << setprecision(6) << dedupclust[clustct].pairnum << "," << dedupclust[clustct].timespan << "," << dedupclust[clustct].uniquepoints << "," << dedupclust[clustct].obsnights << "," << dedupclust[clustct].metric << "," << dedupclust[clustct].rating << ",";
+      outstream1 << fixed << setprecision(6) << dedupclust[clustct].reference_MJD << "," << dedupclust[clustct].heliohyp0 << "," << dedupclust[clustct].heliohyp1 << "," << dedupclust[clustct].heliohyp2 << ",";
+      outstream1 << fixed << setprecision(1) << dedupclust[clustct].posX << "," << dedupclust[clustct].posY << "," << dedupclust[clustct].posZ << ",";
+      outstream1 << fixed << setprecision(4) << dedupclust[clustct].velX << "," << dedupclust[clustct].velY << "," << dedupclust[clustct].velZ << ",";
+      outstream1 << fixed << setprecision(6) << dedupclust[clustct].orbit_a << "," << dedupclust[clustct].orbit_e << "," << dedupclust[clustct].orbit_incl << "," << dedupclust[clustct].orbit_MJD << ",";
+      outstream1 << fixed << setprecision(1) << dedupclust[clustct].orbitX << "," << dedupclust[clustct].orbitY << "," << dedupclust[clustct].orbitZ << ",";
+      outstream1 << fixed << setprecision(4) << dedupclust[clustct].orbitVX << "," << dedupclust[clustct].orbitVY << "," << dedupclust[clustct].orbitVZ << "," << dedupclust[clustct].orbit_eval_count << "\n";
+    }
+    outstream1.close();
+
+    outstream1.open(dedup_c2dfile);
+    cout << "Writing " << dedupclust2det.size() << " lines to deduplicated clust2det file " << dedup_c2dfile << "\n";
+    outstream1 << "#clusternum,detnum\n";
+    for(clustct=0 ; clustct<long(dedupclust2det.size()); clustct++) {
+      outstream1 << dedupclust2det[clustct].i1 << "," << dedupclust2det[clustct].i2 << "\n";
+    }
+    outstream1.close();
   }
 
   return(0);

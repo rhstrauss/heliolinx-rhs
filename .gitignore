@@ -31,6 +31,7 @@ src/label_hldet
 src/label_hldet_mpc
 src/link_planarity_omp
 src/link_purify_chisq
+src/link_purify_chisq_omp
 src/link_purify_omp
 src/make_hypmask
 src/make_outim
