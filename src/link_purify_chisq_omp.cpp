@@ -31,7 +31,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: link_purify_chisq_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list -simptype simplex_type -rejfrac max fraction of points that can be rejected -rejnum max number of points that can be rejected -max_astrom_rms max astrometric RMS (arcsec) -minobsnights min number of distinct nights -minpointnum min number of individual detections -useorbMJD 1=use_orbitMJD_if_available -ptpow point_num_exponent -nightpow night_num_exponent -timepow timespan_exponent -rmspow astrom_rms_exponent -maxrms maxrms -ecc_penalty ecc_penalty -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -verbose verbosity\n\nOR, at minimum:\nlink_purify_chisq_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list\n";
+  cerr << "Usage: link_purify_chisq_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list -simptype simplex_type -rejfrac max fraction of points that can be rejected -rejnum max number of points that can be rejected -max_astrom_rms max astrometric RMS (arcsec) -minobsnights min number of distinct nights -minpointnum min number of individual detections -useorbMJD 1=use_orbitMJD_if_available -ptpow point_num_exponent -nightpow night_num_exponent -timepow timespan_exponent -rmspow astrom_rms_exponent -maxrms maxrms -ecc_penalty ecc_penalty -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -max_oop max_out_of_plane_RMS_km(planarity_pre-cull;omit=off) -heliovane 1=heliovane_hypotheses -verbose verbosity\n\nOR, at minimum:\nlink_purify_chisq_omp -imgs imfile -pairdet pairdet_file -lflist link_file_list\n";
 }
 
 int main(int argc, char *argv[])
@@ -47,6 +47,8 @@ int main(int argc, char *argv[])
   vector <hlimage> image_log;
   vector <hldet> detvec;
   LinkPurifyConfig config;
+  config.max_oop = -1.0; // planarity pre-cull DISABLED by default (enabled only when -max_oop is supplied);
+                         // overrides the struct default so plain chisq behavior is unchanged.
   string imfile, pairdetfile,stest;
   string outsumfile = "LPsumfile_test.csv";
   string outclust2detfile = "LPclust2detfile_test.csv";
@@ -313,11 +315,33 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-max_oop" || string(argv[i]) == "-oop" || string(argv[i]) == "-maxoop" || string(argv[i]) == "-plane_rms" || string(argv[i]) == "-oop_rms" || string(argv[i]) == "--max_oop") {
+      if(i+1 < argc) {
+	config.max_oop=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "max_oop keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-heliovane" || string(argv[i]) == "-use_heliovane" || string(argv[i]) == "-vane" || string(argv[i]) == "--use_heliovane") {
+      if(i+1 < argc) {
+	config.use_heliovane=stoi(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "heliovane keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
     }
   }
+  if(config.max_oop > 0.0l) cout << "Planarity pre-cull ENABLED: max out-of-plane RMS = " << config.max_oop << " km (heliovane=" << config.use_heliovane << ")\n";
+  else cout << "Planarity pre-cull disabled (-max_oop not set); pure chi-square purification\n";
 
   // Catch required parameters if missing
   if(imfile.size()<=0) {

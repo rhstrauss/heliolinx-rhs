@@ -47058,6 +47058,272 @@ int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &d
   return(0);
 }
 
+// cluster_planarity_oop: 2026 — out-of-plane RMS of a cluster's detections under
+// its heliocentric (or heliovane) hypothesis. Pure-computation, thread-safe
+// extract of link_planarity()'s geometry, used as a fast pre-cull before orbit
+// fitting in link_purify_chisq_omp (-max_oop). Returns 0 on success and sets
+// normout1 (km, scaled to 1 AU); for the heliolinc dual-projection case it also
+// sets normout2 and bothcases=1. Returns 8 if a detection references an image
+// index out of range (caller treats as fatal), or 2 if the cluster cannot be
+// projected/integrated (caller rejects the cluster).
+static int cluster_planarity_oop(const hlclust &onecluster, const vector <hldet> &clusterdets,
+                                 const vector <hlimage> &image_log, const LinkPurifyConfig &config,
+                                 double &normout1, double &normout2, int &bothcases)
+{
+  long imnum = long(image_log.size());
+  long imct = 0;
+  int ptnum = int(clusterdets.size());
+  int ptct = 0;
+  int status = 0, status1 = 0;
+  int kepfail = 0;
+  double heliodist = 0.0l, heliovel = 0.0l, helioacc = 0.0l;
+  double lambda0 = 0.0l, lambda_dot = 0.0l, lambda_ddot = 0.0l;
+  double delta1 = 0.0l;
+  double min_proj_sine = 0.0l;
+  point3d observernow = point3d(0.0L,0.0L,0.0L);
+  point3d unitbary = point3d(0.0L,0.0L,0.0L);
+  point3d polepos = point3d(0.0L,0.0L,0.0L);
+  point3d startpos = point3d(0.0l,0.0l,0.0l);
+  point3d startvel = point3d(0.0l,0.0l,0.0l);
+  point3d endpos = point3d(0.0l,0.0l,0.0l);
+  point3d endvel = point3d(0.0l,0.0l,0.0l);
+  vector <double> heliodistvec, lambdavec, planeout1, planeout2, deltavec;
+  vector <point3d> targposvec, heliopos1, heliopos2;
+  normout1 = LARGERR2; normout2 = LARGERR2; bothcases = 0;
+
+    // PLANARITY CHECK
+    heliopos1 = {};
+    heliopos2 = {};
+    heliodistvec={};
+    // Get the heliocentric positions, by hypothesis, at each point
+    if(config.use_heliovane!=1) { // NOT using heliovane
+      // Use the heliolinc output parameterization: AU, km/sec, and m/sec^2
+      heliodist = onecluster.heliohyp0;
+      heliovel = onecluster.heliohyp1;
+      helioacc = onecluster.heliohyp2;
+      if(config.useorbMJD==1 && onecluster.orbit_MJD>0.0) {
+	// A previous execution of link_purify or link_planarity has fit
+	// an orbit and supplied us with a value for MJD at the epoch.
+	// Use this as the reference MJD. (PROBABLY A BAD IDEA)
+	// Also use the Taylor Series rather than Matt Holman's Keplerian r(t)
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Calculate approximate heliocentric distance using the Taylor Series approximation.
+	  delta1 = (clusterdets[ptct].MJD - onecluster.orbit_MJD)*SOLARDAY;
+	  heliodistvec.push_back(heliodist*AU_KM + heliovel*delta1 + 0.5*helioacc*delta1*delta1/1000.0l);
+	}
+      } else if(config.useorbMJD==-1) {
+	// Use the old reference MJD from heliolinc, and the
+	// Taylor Series rather than Matt Holman's Keplerian r(t)
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Calculate approximate heliocentric distance using the Taylor Series approximation.
+	  delta1 = (clusterdets[ptct].MJD - onecluster.reference_MJD)*SOLARDAY;
+	  heliodistvec.push_back(heliodist*AU_KM + heliovel*delta1 + 0.5*helioacc*delta1*delta1/1000.0l);
+	}
+      } else if(config.useorbMJD==2 && onecluster.orbit_MJD>0.0) {
+	// A previous execution of link_purify or link_planarity has fit
+	// an orbit and supplied us with a value for MJD at the epoch.
+	// Use this as the reference MJD. (PROBABLY A BAD IDEA)
+	// Also use Matt Holman's Keplerian r(t), rather than the Taylor Series
+	// SOLVE FOR THE SQUARE OF THE TANGENTIAL VELOCITY
+	double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist*AU_KM); // Units are km/sec^2
+	double physacc = helioacc/1000.0l; // Units are km/sec^2
+	double vesc = 2.0*GMSUN_KM3_SEC2/heliodist/AU_KM; // this is the square of the escape velocity in km/sec
+	double tanvel = heliodist*AU_KM*(physacc+localg); // this is the square of the tangential velocity in km/sec
+
+	// CHECK FOR UNPHYSICAL AND UNBOUND CASES
+	if(tanvel<0.0l) {
+	  // return(1);
+	  return(2); // reject: projection/kepler failure
+	}
+	if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+	  // The fact that the orbit is unbound is not a problem, because this function uses
+	  // universal variables and can handle unbound orbits.
+	}
+	// If we get here, a sensible solution (bound or unbound) exists. Solve for the true tangential velocity
+	tanvel = sqrt(tanvel);
+	// Construct state vectors producing the required orbit (in the x-y plane, for simplicity).
+	startpos = point3d(heliodist*AU_KM,0l,0l);
+	startvel = point3d(heliovel,tanvel,0l);
+	endpos = point3d(0l,0l,0l);
+	endvel = point3d(0l,0l,0l);
+	kepfail=0;
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Integrate the orbit to find the heliocentric distance as a function of time.
+	  status1 = Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, clusterdets[ptct].MJD, endpos, endvel, config.verbose);
+	  if(status1!=0) {
+	    kepfail=1;
+	    // return(status1);
+	  }
+	  heliodistvec.push_back(vecabs3d(endpos));
+	}
+	if(kepfail!=0) {
+	  // Skip to the next cluster
+	  return(2); // reject: projection/kepler failure
+	}
+      } else {
+	// Default case: use the old reference MJD, and Matt Holman's new Keplerian r(t)
+	// SOLVE FOR THE SQUARE OF THE TANGENTIAL VELOCITY
+	double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist*AU_KM); // Units are km/sec^2
+	double physacc = helioacc/1000.0l; // Units are km/sec^2
+	double vesc = 2.0*GMSUN_KM3_SEC2/heliodist/AU_KM; // this is the square of the escape velocity in km/sec
+	double tanvel = heliodist*AU_KM*(physacc+localg); // this is the square of the tangential velocity in km/sec
+	// CHECK FOR UNPHYSICAL AND UNBOUND CASES
+	if(tanvel<0.0l) {
+	  //return(1);
+	  return(2); // reject: projection/kepler failure
+	}
+	if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+	  // The fact that the orbit is unbound is not a problem, because this function uses
+	  // universal variables and can handle unbound orbits.
+	}
+	// If we get here, a sensible solution (bound or unbound) exists. Solve for the true tangential velocity
+	tanvel = sqrt(tanvel);
+	// Construct state vectors producing the required orbit (in the x-y plane, for simplicity).
+	startpos = point3d(heliodist*AU_KM,0l,0l);
+	startvel = point3d(heliovel,tanvel,0l);
+	endpos = point3d(0l,0l,0l);
+	endvel = point3d(0l,0l,0l);
+	kepfail=0;
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Integrate the orbit to find the heliocentric distance as a function of time.
+	  status1 = Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, clusterdets[ptct].MJD, endpos, endvel, config.verbose);
+	  if(status1==0) heliodistvec.push_back(vecabs3d(endpos));
+	  else {
+	    //return(status1);
+	    kepfail=1;
+	  }
+	}
+	if(kepfail!=0) {
+	  return(2); // reject: projection/kepler failure
+	}
+      }
+	
+      // Now infer the 3-D positions, and heliocentric polar coordinates, of each point
+      // based on these hypothetical distances.
+      heliopos1 = {};
+      heliopos2 = {};
+      bothcases=0;
+      for(ptct=0; ptct<ptnum; ptct++) {
+	// Figure out where the observer is.
+	imct = clusterdets[ptct].image;
+	if(imct>=imnum) {
+	  return(8);
+	}
+	observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
+	// Convert the observational RA, Dec into a unit vector
+	celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
+	// Project the observation onto the resulting heliocentric sphere
+	targposvec={};
+	deltavec={};
+	status = helioproj02(unitbary,observernow,heliodistvec[ptct], deltavec, targposvec);
+	if(status==1 || status==2) {
+	  heliopos1.push_back(targposvec[0]);
+	  if(status==2) heliopos2.push_back(targposvec[1]);
+	} else {
+	  //return(status);
+	  // Push through this error rather than returning; hopefully the dummy
+	  // values set in helioproj will cause the point to be rejected.
+	}
+      }
+      if(long(heliopos1.size())!=ptnum) {
+	//return(3);
+      }
+      if(long(heliopos2.size())==ptnum) {
+	// There were valid solutions to both projection geometries,
+	// so we must keep track of the planarity of both.
+	bothcases=1;
+      }
+    } else if(config.use_heliovane==1) {
+      bothcases=0; // Always, when using heliovane: bothcases==1 is possible only with heliolinc.
+      // We are processing input from heliovane, with heliovane-style hypotheses.
+      // Calculate approximate heliocentric ecliptic longitude (lambda) from the
+      // input quadratic approximation. This is all in units of degrees an days.
+      lambda0 = onecluster.heliohyp0;
+      lambda_dot = onecluster.heliohyp1;
+      lambda_ddot = onecluster.heliohyp2;
+      lambdavec={};
+      for(ptct=0; ptct<ptnum; ptct++) {
+	// Calculate approximate heliocentric ecliptic longitude from the input quadratic approximation.
+	
+	if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+	  // A previous execution of link_purify or link_planarity has fit
+	  // an orbit and supplied us with a value for MJD at the epoch.
+	  // Use this as the reference MJD.
+	  delta1 = clusterdets[ptct].MJD - onecluster.orbit_MJD;
+	} else {
+	  delta1 = clusterdets[ptct].MJD - onecluster.reference_MJD;
+	} 
+	lambdavec.push_back(lambda0 + lambda_dot*delta1 + 0.5*lambda_ddot*delta1*delta1);
+      }
+      // Now infer the 3-D positions, and heliocentric polar coordinates, of each point
+      // based on these hypothetical heliocentric ecliptic longitudes
+      heliopos1 = {};
+      heliopos2 = {};
+      for(ptct=0; ptct<ptnum; ptct++) {
+	// Figure out where the observer is.
+	imct = clusterdets[ptct].image;
+	if(imct>=imnum) {
+	  return(8);
+	}
+	observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
+	// Convert the observational RA, Dec into a unit vector
+	celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
+	// Project the observation onto the resulting heliocentric sphere.
+	// (scalar temporaries: vaneproj01d takes double&/point3d&, not vectors)
+	double vdelta=0.0l; point3d vtarg=point3d(0.0L,0.0L,0.0L);
+	status = vaneproj01d(unitbary,observernow,lambdavec[ptct],min_proj_sine,vdelta,vtarg);
+	if(status==0) heliopos1.push_back(vtarg);
+	else {
+	  //return(status);
+	}
+      }
+      if(long(heliopos1.size())!=ptnum) {
+	//return(3);
+      }
+    }
+    // Reject (rather than risk OOB) if projection did not yield every point.
+    if(long(heliopos1.size())!=ptnum) return(2);
+    // Further processing does not care if we started with heliolinc or heliovane.
+    status = planepolefind(heliopos1,polepos);
+    if(status!=0) {
+      //return(status);
+      return(2); // reject: projection/kepler failure
+    }
+    normout1 = 0.0l;
+    planeout1 = {};
+    for(ptct=0; ptct<ptnum; ptct++) {
+      // Calculate and store the absolute deviation of this point from the plane, in km.
+      planeout1.push_back(fabs(dotprod3d(heliopos1[ptct],polepos)));
+      // Squared deviation, scaled by heliocentric distance, normalized to 1 AU.
+      normout1 += DSQUARE(planeout1[ptct]*AU_KM/vecabs3d(heliopos1[ptct]));
+    }
+    // Calculate RMS deviation from planarity, scaled to a heliocentric distance
+    normout1 = sqrt(normout1/double(ptnum));
+    if(bothcases==1) {
+      // There were two valid solutions to the projection for every point.
+      // This is possible with heliolinc (though not heliovane), for objects
+      // inside Earth's orbit. Handle the other case too.
+      status = planepolefind(heliopos2,polepos);
+      if(status==0) {
+	normout2 = 0.0l;
+	planeout2 = {};
+	for(ptct=0; ptct<ptnum; ptct++) {
+	// Calculate and store the absolute deviation of this point from the plane, in km.
+	  planeout2.push_back(fabs(dotprod3d(heliopos2[ptct],polepos)));
+	  // Squared deviation, scaled by heliocentric distance, normalized to 1 AU.
+	  normout2 += DSQUARE(planeout2[ptct]*AU_KM/vecabs3d(heliopos2[ptct]));
+	}
+	// Calculate RMS deviation from planarity, scaled to a heliocentric distance
+	normout2 = sqrt(normout2/double(ptnum));
+      } else {
+	// No valid pole for the second solution. Set normout2 very large so it gets ignored.
+	normout2 = LARGERR2;
+      }
+    }
+
+  return(0);
+}
+
 // link_purify_chisq_omp: 2026 — OpenMP-parallel version of link_purify_chisq.
 // Identical functionality and invocation, plus an n_workers argument (nw).
 // Phase A (per-cluster orbit fitting, the runtime-dominant step) is parallelized
@@ -47242,6 +47508,20 @@ int link_purify_chisq_omp(const vector <hlimage> &image_log, const vector <hldet
 	if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
       }
 	    
+
+      // Optional planarity pre-cull (-max_oop): reject obviously non-coplanar
+      // linkages with a fast geometric test BEFORE the expensive orbit fit.
+      // Disabled unless config.max_oop>0 (driver default -1), so behavior is
+      // byte-identical to plain chisq when -max_oop is not supplied. This is a
+      // CLUSTER-level reject (whole linkage), not link_planarity's point-culling,
+      // so set max_oop a bit looser than for standalone link_planarity.
+      if(config.max_oop > 0.0l) {
+        double pl_normout1=LARGERR2, pl_normout2=LARGERR2; int pl_both=0;
+        int pl_status = cluster_planarity_oop(onecluster, clusterdets, image_log, config, pl_normout1, pl_normout2, pl_both);
+        if(pl_status==8) { error_cases[ithread]=8; global_fatal=1; continue; } // image index OOB (fatal, as in link_planarity)
+        if(pl_status!=0) continue; // could not project/integrate this cluster -> reject
+        if(!(pl_normout1<=config.max_oop || (pl_both==1 && pl_normout2<=config.max_oop))) continue; // fails planarity -> skip fit
+      }
       // Perform orbit fitting using the method of Herget, to get astrometric residuals
       // Load observational vectors
       observerpos = observervel = {};
