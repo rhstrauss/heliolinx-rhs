@@ -140,8 +140,23 @@ int main(int argc, char *argv[])
 
   // ---- Read the input detections ----
   if(informat == "mpc80") {
-    int status = read_detection_file_MPC80(dets_file, in_dets);
-    if(status != 0) { cerr << "ERROR reading mpc80 file " << dets_file << " (status " << status << ")\n"; return(1); }
+    // Tolerant obs80 read: accept pure MPC 80-column files AND mixed
+    // parse_clust2det_MPC80 parseout files (which interleave CSV cluster
+    // summaries with obs80 blocks). Any line that isn't a parseable optical
+    // obs80 record is silently skipped, reusing the quiet mpcat_parse_obs80line.
+    ifstream mpcstream(dets_file);
+    if(!mpcstream) { cerr << "ERROR: can't open mpc80 file " << dets_file << "\n"; return(1); }
+    string lnfromfile;
+    mpcdet rec;
+    long badlines = 0;
+    while(getline(mpcstream, lnfromfile)) {
+      if(mpcat_parse_obs80line(lnfromfile, rec) != 0) { badlines++; continue; }
+      in_dets.push_back(hldet(rec.MJD, rec.RA, rec.Dec, rec.mag, 0.0, 90.0, 9.999, 1.0, 1.0,
+                              -1, string(rec.packed), string(rec.band), string(rec.obscode),
+                              -1, -1, long(in_dets.size())));
+    }
+    mpcstream.close();
+    cout << "Parsed " << in_dets.size() << " obs80 detections (" << badlines << " non-obs80 lines skipped)\n";
   } else {
     // pairdets: optionally read a column-format file (same block as label_hldet_mpc).
     if(colformatfile_set) {

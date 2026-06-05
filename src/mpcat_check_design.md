@@ -51,8 +51,13 @@ mpcat_check -dets in.mpc80 -mpcat mpcat.bin \
 
 - **Input** is either an MPC 80-column file or a heliolinx `pairdets` CSV.
   Auto-detected from the `-dets` extension (`.mpc80` → mpc80, else pairdets)
-  unless `-informat` is given. The `pairdets` path reuses `read_detection_filemt2`
-  and the same `-colformat` block as `label_hldet_mpc`.
+  unless `-informat` is given. The `mpc80` path is **tolerant**: it reads via the
+  quiet `mpcat_parse_obs80line` and silently skips any non-obs80 line, so it
+  accepts both pure obs80 files **and** mixed `parse_clust2det_MPC80` parseout
+  files directly (those interleave CSV cluster summaries with 80-char obs80
+  blocks — the typical heliolinc product you want to check). The `pairdets` path
+  reuses `read_detection_filemt2` and the same `-colformat` block as
+  `label_hldet_mpc`.
 - mmap's `mpcat.bin`, validates `sizeof(mpcdet)` against `mpcat.bin.hdr`
   (`recsize`), and `std::lower_bound`/`upper_bound`s the MJD-sorted array for
   `[min(MJD)-timerad, max(MJD)+timerad]` → a contiguous slice.
