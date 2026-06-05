@@ -151,6 +151,32 @@ make install
 
 **link_planarity:** A version of `link_purify` that uses pre-screening based on lack of coplanarity of the inferred 3-D positions to reject some outliers prior to the (much more computationally intensive) Keplerian orbit fitting. With a well-chosen coplanarity criterion, `link_planarity` achieves results almost as good as those of `link_purify` with runtimes a factor of a few shorter.
 
+## Additional programs in this fork (heliolinx-rhs): ##
+
+The `heliolinx-rhs` fork adds OpenMP-parallel variants and several new programs. A complete, categorized inventory lives in `CLAUDE.md`; the highlights:
+
+**make_tracklets_omp:** OpenMP-parallel `make_tracklets` (parallelized over nightly chunks).
+
+**make_trailed_tracklets:** Builds tracklets from *trailed* (streaked) detections of fast-moving objects, where each detection already records the streak.
+
+**Cross-observatory tracklet linking:** `make_tracklets` / `make_trailed_tracklets` now accept per-image observer positions (`img_log`). When a candidate tracklet spans detections from more than one observatory, the great-circle-residual fit is redone with a parallax correction over a set of trial heliocentric distances, enabling cross-site links that a single-observatory fit would reject.
+
+**merge_det_catalogs / merge_tracklet_files:** Combine detection catalogs (multi-site, time-sorted, k-way merge) or tracklet file sets into single inputs.
+
+**heliolinc_estimate:** Predict peak memory and runtime for a `heliolinc_lowmem_omp` run before launching it.
+
+**heliolinc_lowmem_omp cross-hypothesis dedup:** With `-dedup yes`, identical detection-sets found under different hypotheses are collapsed via a parallel "funnel" (per-thread survivor maps + deterministic tree-merge), keeping the best-fitting (lowest-RMS / highest-metric) representative. Output is byte-identical regardless of thread count.
+
+**link_purify_chisq / link_purify_chisq_omp:** A `link_purify` variant whose cluster-quality metric is chi-square based. `link_purify_chisq_omp` parallelizes the per-cluster orbit fitting (`-n_workers N`), uses a parallel exact-duplicate cull (`link_dedup_funnel`), and includes a guard against a segfault on pathological orbit-fit failures. It also offers an optional `-max_oop` planarity pre-cull (off by default): when set, non-coplanar linkages are rejected by a fast geometric test *before* the expensive orbit fit, fusing the `link_planarity` screen with chi-square purification in a single pass.
+
+**dedup_across_windows:** Cross-window linkage deduplication keyed on the detection idstrings, for stitching together per-window pipeline output.
+
+**parse_clust2det / parse_clust2det_MPC80:** Expand cluster summaries into per-detection rows, or into MPC 80-column astrometry.
+
+**label_hldet / label_hldet_mpc:** Label heliolinc detections; `label_hldet_mpc` cross-matches them against the Minor Planet Center catalog.
+
+**inject_fakes:** Synthetic small-body injection for survey-data testing. Fully argument-driven (every input/output is a CLI flag, no hardcoded paths); generates a fakes-only detection catalog plus a matching truth file by propagating supplied or population-sampled orbits through the heliolinx ephemeris/projection routines. See `inject_fakes_design.md`.
+
 ## Testing your installation: ##
 
 ### Testing make_tracklets ###
