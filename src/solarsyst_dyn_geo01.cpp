@@ -29137,7 +29137,113 @@ int merge_pairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs,
 // The overall operation is the same as the previous code:
 // Given the output from find_pairs, merge pairs into tracklets with
 // more than two points, if possible
-int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose)
+// Helper for merge_pairs2: runs the full linear-fit + time-dup + GCR-outlier rejection.
+// Uses absolute residuals (arcsec), not trail_len-normalized. Sets slopes/intercepts,
+// GCR_out (RMS), and istimedup_out. Returns worsterr (max absolute residual).
+static double gcr_fit_pairs(vector<double> &timevec, vector<double> &xvec, vector<double> &yvec,
+                             vector<long> &detindexvec, int mintrkpts, double maxgcr,
+                             double &slopex, double &slopey, double &interceptx, double &intercepty,
+                             double &GCR_out, int &istimedup_out)
+{
+  int trkptnum = 0;
+  int worstpoint = -1;
+  double worsterr = 0.0l;
+  vector<double> fiterr;
+  long j;
+
+  linfituw01(timevec, xvec, slopex, interceptx);
+  linfituw01(timevec, yvec, slopey, intercepty);
+  fiterr = {};
+  GCR_out = 0.0l;
+  for(j=0; j<long(timevec.size()); j++) {
+    double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+    GCR_out += square_err;
+    fiterr.push_back(sqrt(square_err));
+  }
+  GCR_out = sqrt(GCR_out/double(timevec.size()));
+  // Ditch duplicate times
+  istimedup_out = 1;
+  while(istimedup_out==1 && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
+    istimedup_out = 0;
+    j = 1;
+    while(j<long(timevec.size()) && istimedup_out==0) {
+      if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+        istimedup_out = 1;
+        if(fiterr[j]>=fiterr[j-1]) worstpoint = j;
+        else worstpoint = j-1;
+      }
+      j++;
+    }
+    if(istimedup_out==1) {
+      trkptnum = timevec.size();
+      for(j=worstpoint; j<trkptnum-1; j++) {
+        timevec[j] = timevec[j+1]; xvec[j] = xvec[j+1]; yvec[j] = yvec[j+1]; detindexvec[j] = detindexvec[j+1];
+      }
+      trkptnum--;
+      timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+      if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+        cerr << "ERROR: gcr_fit_pairs size mismatch in time-dup rejection\n";
+        return 1e18;
+      }
+      linfituw01(timevec, xvec, slopex, interceptx);
+      linfituw01(timevec, yvec, slopey, intercepty);
+      fiterr = {};
+      GCR_out = 0.0l;
+      for(j=0; j<long(timevec.size()); j++) {
+        double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+        GCR_out += square_err;
+        fiterr.push_back(sqrt(square_err));
+      }
+      GCR_out = sqrt(GCR_out/double(timevec.size()));
+    }
+  }
+  // Final check for remaining time-dups (loop may have stopped early due to size constraint)
+  istimedup_out = 0;
+  j = 1;
+  while(j<long(timevec.size()) && istimedup_out==0) {
+    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) istimedup_out = 1;
+    j++;
+  }
+  // Find worst error
+  worsterr = 0.0l;
+  for(j=0; j<long(timevec.size()); j++) {
+    if(fiterr[j]>worsterr) { worsterr = fiterr[j]; worstpoint = j; }
+  }
+  // Reject outliers
+  while(worsterr>maxgcr && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
+    trkptnum = timevec.size();
+    for(j=worstpoint; j<trkptnum-1; j++) {
+      timevec[j] = timevec[j+1]; xvec[j] = xvec[j+1]; yvec[j] = yvec[j+1]; detindexvec[j] = detindexvec[j+1];
+    }
+    trkptnum--;
+    timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+      cerr << "ERROR: gcr_fit_pairs size mismatch in outlier rejection\n";
+      return 1e18;
+    }
+    linfituw01(timevec, xvec, slopex, interceptx);
+    linfituw01(timevec, yvec, slopey, intercepty);
+    fiterr = {};
+    GCR_out = 0.0l;
+    for(j=0; j<long(timevec.size()); j++) {
+      double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+      GCR_out += square_err;
+      fiterr.push_back(sqrt(square_err));
+    }
+    GCR_out = sqrt(GCR_out/double(timevec.size()));
+    if(fiterr.size() != timevec.size()) {
+      cerr << "Error: gcr_fit_pairs fiterr/timevec size mismatch\n";
+      return 1e18;
+    }
+    worsterr = 0.0l;
+    for(j=0; j<long(timevec.size()); j++) {
+      if(fiterr[j]>worsterr) { worsterr = fiterr[j]; worstpoint = j; }
+    }
+  }
+  return worsterr;
+}
+
+int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose, const vector<hlimage> &img_log)
 {
   long detnum = pairdets.size();
   long detct=0;
@@ -29158,17 +29264,12 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
   int tracklet_size = 0;
   point3d_index p3di = point3d_index(0.0l,0.0l,0.0l,0);
   vector <point3d_index>   track_mrdi_vec;
-  int trkptnum=0;
-  int istimedup=1;
   vector <double> timevec;
   vector <double> xvec;
   vector <double> yvec;
   vector <long> detindexvec;
   double slopex,slopey,interceptx,intercepty,worsterr;
   slopex = slopey = interceptx = intercepty = worsterr = 0.0l;
-  vector <double> fiterr = {};
-  vector <double> fiterr2 = {};
-  int worstpoint=-1;
   double dtref,dt,dx,dy,angvel;
   dtref = dt = dx = dy = angvel = 0.0l;
   double outra1,outdec1,outra2,outdec2;
@@ -29351,134 +29452,56 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 	  }
 	}
 
-	// Perform fit to projected x coordinate as a function of time
-	linfituw01(timevec, xvec, slopex, interceptx);
- 	// Perform fit to projected y coordinate as a function of time
-	linfituw01(timevec, yvec, slopey, intercepty);
-	// Load vector of residuals
-	fiterr = {};
-	GCR=0.0l;
-	for(j=0; j<long(timevec.size()); j++) {
-	  double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
-	  GCR += square_err;
-	  fiterr.push_back(sqrt(square_err));
-	}
-	GCR = sqrt(GCR/double(timevec.size()));
-	// Ditch duplicate times, if there are any
-	istimedup=1; // Guilty until proven innocent
-	while(istimedup==1 && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
-	  istimedup=0;
-	  j=1;
-	  while(j<long(timevec.size()) && istimedup==0) {
-	    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
-	      istimedup=1; // Point j and j-1 are time-duplicates.
-	      // Mark for rejection whichever one has the largest fitting error
-	      if(fiterr[j]>=fiterr[j-1]) worstpoint = j; 
-	      else worstpoint = j-1;
-	    }
-	    j++;
-	  }
-	  if(istimedup==1) {
-	    // Reject the bad point
-	    trkptnum=timevec.size();
-	    for(j=worstpoint; j<trkptnum-1; j++) {
-	      timevec[j] = timevec[j+1];
-	      xvec[j] = xvec[j+1];
-	      yvec[j] = yvec[j+1];
-	      detindexvec[j] = detindexvec[j+1];
-	    }
-	    trkptnum--;
-	    timevec.resize(trkptnum);
-	    xvec.resize(trkptnum);
-	    yvec.resize(trkptnum);
-	    detindexvec.resize(trkptnum);
-	    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	      cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	      cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	      cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	      return(6);
-	    }
-	    // Re-do linear fit
-	    // Perform fit to projected x coordinate as a function of time
-	    linfituw01(timevec, xvec, slopex, interceptx);
-	    // Perform fit to projected y coordinate as a function of time
-	    linfituw01(timevec, yvec, slopey, intercepty);
-	    // Load vector of residuals
-	    fiterr = {};
-	    GCR=0.0l;
-	    for(j=0; j<long(timevec.size()); j++) {
-	      double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
-	      GCR += square_err;
-	      fiterr.push_back(sqrt(square_err));
-	    }
-	    GCR = sqrt(GCR/double(timevec.size()));
+	int istimedup = 0;
+	// === Option B: cross-observatory parallax correction for GCR fit ===
+	bool is_cross_obs_cand = false;
+	for(j=0; j<long(detindexvec.size()); j++) {
+	  if(strncmp(pairdets[detindexvec[j]].obscode, pairdets[i].obscode, MINSTRINGLEN) != 0) {
+	    is_cross_obs_cand = true;
+	    break;
 	  }
 	}
-	// Recalculate istimedup, now that the loop is finished.
-	istimedup=0;
-	j=1;
-	while(j<long(timevec.size()) && istimedup==0) {
-	  if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
-	    istimedup=1; // Point j and j-1 are time-duplicates.
-	  }
-	  j++;
-	}
-	// Find worst error.  
-	worsterr = 0.0l;
-	for(j=0; j<long(timevec.size()); j++) {
-	  if(fiterr[j]>worsterr) {
-	    worsterr = fiterr[j];
-	    worstpoint = j;
-	  }
-	}
-	// Reject successive points until either there are only three left
-	// or the worst error drops below maxgcr.
-	while(worsterr>maxgcr && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
-	  // Reject the worst point
-	  trkptnum=timevec.size();
-	  for(j=worstpoint; j<trkptnum-1; j++) {
-	    timevec[j] = timevec[j+1];
-	    xvec[j] = xvec[j+1];
-	    yvec[j] = yvec[j+1];
-	    detindexvec[j] = detindexvec[j+1];
-	  }
-	  trkptnum--;
-	  timevec.resize(trkptnum);
-	  xvec.resize(trkptnum);
-	  yvec.resize(trkptnum);
-	  detindexvec.resize(trkptnum);	  
-	  if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	    cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	    cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	    cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	    return(6);
-	  }
-	  // Perform fit to projected x coordinate as a function of time
-	  linfituw01(timevec, xvec, slopex, interceptx);
-	  // Perform fit to projected y coordinate as a function of time
-	  linfituw01(timevec, yvec, slopey, intercepty);
-	  // Load vector of residuals
-	  fiterr = {};
-	  GCR=0.0l;
-	  for(j=0; j<long(timevec.size()); j++) {
-	    double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
-	    GCR += square_err;
-	    fiterr.push_back(sqrt(square_err));
-	  }
-	  GCR = sqrt(GCR/double(timevec.size()));
-	  // Find worst error.  
-	  worsterr = 0.0l;
-	  if(fiterr.size() != timevec.size()) {
-	    cerr << "Error: fiterr and timevec have different sizes: " << fiterr.size() << "vs. " << timevec.size() << "\n";
-	    return(7);
-	  }
-	  for(j=0; j<long(timevec.size()); j++) {
-	    if(fiterr[j]>worsterr) {
-	      worsterr = fiterr[j];
-	      worstpoint = j;
+	bool gcr_accepted = false;
+	if(is_cross_obs_cand && !img_log.empty()) {
+	  static const double gcr_d_trials[] = {0.05, 0.5, 5.0, 50.0};
+	  double ra0_rad = pairdets[i].RA / DEGPRAD;
+	  double dec0_rad = pairdets[i].Dec / DEGPRAD;
+	  double east_hat[3]  = {-sin(ra0_rad), cos(ra0_rad), 0.0};
+	  double north_hat[3] = {-sin(dec0_rad)*cos(ra0_rad), -sin(dec0_rad)*sin(ra0_rad), cos(dec0_rad)};
+	  long anchor_img = pairdets[i].image;
+	  double obs0x = img_log[anchor_img].X;
+	  double obs0y = img_log[anchor_img].Y;
+	  double obs0z = img_log[anchor_img].Z;
+	  vector<double> timevec_save = timevec, xvec_save = xvec, yvec_save = yvec;
+	  vector<long> detindexvec_save = detindexvec;
+	  for(int ktry=0; ktry<4 && !gcr_accepted; ktry++) {
+	    double d_au = gcr_d_trials[ktry];
+	    double inv_d_km = 1.0 / (d_au * AU_KM);
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	    for(j=0; j<long(detindexvec.size()); j++) {
+	      long img_j = pairdets[detindexvec[j]].image;
+	      double dpx = (obs0x - img_log[img_j].X) * inv_d_km;
+	      double dpy = (obs0y - img_log[img_j].Y) * inv_d_km;
+	      double dpz = (obs0z - img_log[img_j].Z) * inv_d_km;
+	      xvec[j] += (dpx*east_hat[0] + dpy*east_hat[1] + dpz*east_hat[2]) * (DEGPRAD*3600.0);
+	      yvec[j] += (dpx*north_hat[0] + dpy*north_hat[1] + dpz*north_hat[2]) * (DEGPRAD*3600.0);
+	    }
+	    double we = gcr_fit_pairs(timevec, xvec, yvec, detindexvec, mintrkpts, maxgcr,
+	                              slopex, slopey, interceptx, intercepty, GCR, istimedup);
+	    if(we <= maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
+	      worsterr = we;
+	      gcr_accepted = true;
 	    }
 	  }
+	  if(!gcr_accepted) {
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	  }
 	}
+	if(!gcr_accepted) {
+	  worsterr = gcr_fit_pairs(timevec, xvec, yvec, detindexvec, mintrkpts, maxgcr,
+	                           slopex, slopey, interceptx, intercepty, GCR, istimedup);
+	}
+	// === End Option B ===
 	// See if we've rejected the anchor point i
 	istracklet=0;
 	for(j=0; j<long(detindexvec.size()); j++) {
@@ -30335,7 +30358,113 @@ int merge_pairs3(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 //maxgcr times the length of the trail. Hence, if maxgcr=0.5,
 //the default value, a tracklet is allowed to have a GCR up
 //to 0.5 times the trail length.
-int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose)
+// Helper for merge_trailpairs: runs the full linear-fit + time-dup + GCR-outlier rejection
+// on the supplied vectors (modified in-place). Sets slopex/y and interceptx/y via output refs.
+// Returns worsterr; returns 1e18 on internal error (ensuring rejection).
+static double gcr_fit_trail(vector<double> &timevec, vector<double> &xvec, vector<double> &yvec,
+                             vector<long> &detindexvec, const vector<hldet> &pairdets,
+                             int mintrkpts, double maxgcr,
+                             double &slopex, double &slopey, double &interceptx, double &intercepty)
+{
+  int trkptnum = 0;
+  int istimedup = 1;
+  int worstpoint = -1;
+  double worsterr = 0.0l;
+  vector<double> fiterr;
+  long j;
+
+  linfituw01(timevec, xvec, slopex, interceptx);
+  linfituw01(timevec, yvec, slopey, intercepty);
+  fiterr = {};
+  for(j=0; j<long(timevec.size()); j++) {
+    fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
+  }
+  istimedup=1;
+  while(istimedup==1 && long(timevec.size())>=mintrkpts+1) {
+    istimedup=0;
+    j=1;
+    while(j<long(timevec.size()) && istimedup==0) {
+      if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+        istimedup=1;
+        if(fiterr[j]/pairdets[detindexvec[j]].trail_len >= fiterr[j-1]/pairdets[detindexvec[j-1]].trail_len) worstpoint = j;
+        else worstpoint = j-1;
+      }
+      j++;
+    }
+    if(istimedup==1) {
+      trkptnum=timevec.size();
+      for(j=worstpoint; j<trkptnum-1; j++) {
+        timevec[j] = timevec[j+1];
+        xvec[j] = xvec[j+1];
+        yvec[j] = yvec[j+1];
+        detindexvec[j] = detindexvec[j+1];
+      }
+      trkptnum--;
+      timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+      if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+        cerr << "ERROR: gcr_fit_trail size mismatch in time-dup rejection\n";
+        return 1e18;
+      }
+      linfituw01(timevec, xvec, slopex, interceptx);
+      linfituw01(timevec, yvec, slopey, intercepty);
+      fiterr = {};
+      for(j=0; j<long(timevec.size()); j++) {
+        fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
+      }
+    }
+  }
+  worsterr = 0.0l;
+  for(j=0; j<long(timevec.size()); j++) {
+    if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
+      worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
+      worstpoint = j;
+    }
+  }
+  while(worsterr>maxgcr && timevec.size()>3 && long(timevec.size())>=mintrkpts) {
+    trkptnum=timevec.size();
+    for(j=worstpoint; j<trkptnum-1; j++) {
+      timevec[j] = timevec[j+1];
+      xvec[j] = xvec[j+1];
+      yvec[j] = yvec[j+1];
+      detindexvec[j] = detindexvec[j+1];
+    }
+    trkptnum--;
+    timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+      cerr << "ERROR: gcr_fit_trail size mismatch in outlier rejection\n";
+      return 1e18;
+    }
+    linfituw01(timevec, xvec, slopex, interceptx);
+    linfituw01(timevec, yvec, slopey, intercepty);
+    fiterr = {};
+    for(j=0; j<long(timevec.size()); j++) {
+      fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
+    }
+    if(fiterr.size() != timevec.size()) {
+      cerr << "Error: gcr_fit_trail fiterr/timevec size mismatch\n";
+      return 1e18;
+    }
+    worsterr = 0.0l;
+    for(j=0; j<long(timevec.size()); j++) {
+      if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
+        worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
+        worstpoint = j;
+      }
+    }
+  }
+  return worsterr;
+}
+
+//merge_trailpairs: February 20, 2024: Given the output from find_pairs,
+//merge pairs into tracklets with more than two points, if possible.
+//This function is very similar to merge_pairs, but its cutoff on the
+//Great Circle Residual for a tracklet with more than two points
+//scales with the trail length, rather than being a fixed number.
+//Specifically, the actual maximum permitted GCR is equal to
+//maxgcr times the length of the trail. Hence, if maxgcr=0.5,
+//the default value, a tracklet is allowed to have a GCR up
+//to 0.5 times the trail length.
+int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose, const vector<hlimage> &img_log)
 {
   long detnum = pairdets.size();
   long detct=0;
@@ -30358,17 +30487,12 @@ int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &ind
   int tracklet_size = 0;
   point3d_index p3di = point3d_index(0.0l,0.0l,0.0l,0);
   vector <point3d_index>   track_mrdi_vec;
-  int trkptnum=0;
-  int istimedup=1;
   vector <double> timevec;
   vector <double> xvec;
   vector <double> yvec;
   vector <long> detindexvec;
   double slopex,slopey,interceptx,intercepty,worsterr;
   slopex = slopey = interceptx = intercepty = worsterr = 0.0l;
-  vector <double> fiterr = {};
-  vector <double> fiterr2 = {};
-  int worstpoint=-1;
   double dtref,dt,dx,dy,angvel;
   dtref = dt = dx = dy = angvel = 0.0l;
   double outra1,outdec1,outra2,outdec2;
@@ -30566,113 +30690,57 @@ int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &ind
 	  }
 	}
 
-	// Perform fit to projected x coordinate as a function of time
-	linfituw01(timevec, xvec, slopex, interceptx);
- 	// Perform fit to projected y coordinate as a function of time
-	linfituw01(timevec, yvec, slopey, intercepty);
-	// Load vector of residuals
-	fiterr = {};
-	for(j=0; j<long(timevec.size()); j++) {
-	  fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
-	}
-	// Ditch duplicate times, if there are any
-	istimedup=1; // Guilty until proven innocent
-	while(istimedup==1 && long(timevec.size())>=mintrkpts+1) {
-	  istimedup=0;
-	  j=1;
-	  while(j<long(timevec.size()) && istimedup==0) {
-	    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
-	      istimedup=1; // Point j and j-1 are time-duplicates.
-	      // Mark for rejection whichever one has the largest fitting error
-	      if(fiterr[j]/pairdets[detindexvec[j]].trail_len >= fiterr[j-1]/pairdets[detindexvec[j-1]].trail_len) worstpoint = j; 
-	      else worstpoint = j-1;
-	    }
-	    j++;
-	  }
-	  if(istimedup==1) {
-	    // Reject the bad point
-	    trkptnum=timevec.size();
-	    for(j=worstpoint; j<trkptnum-1; j++) {
-	      timevec[j] = timevec[j+1];
-	      xvec[j] = xvec[j+1];
-	      yvec[j] = yvec[j+1];
-	      detindexvec[j] = detindexvec[j+1];
-	    }
-	    trkptnum--;
-	    timevec.resize(trkptnum);
-	    xvec.resize(trkptnum);
-	    yvec.resize(trkptnum);
-	    detindexvec.resize(trkptnum);
-	    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	      cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	      cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	      cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	      return(6);
-	    }
-	    // Re-do linear fit
-	    // Perform fit to projected x coordinate as a function of time
-	    linfituw01(timevec, xvec, slopex, interceptx);
-	    // Perform fit to projected y coordinate as a function of time
-	    linfituw01(timevec, yvec, slopey, intercepty);
-	    // Load vector of residuals
-	    fiterr = {};
-	    for(j=0; j<long(timevec.size()); j++) {
-	      fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
-	    }
+	// === Option B: cross-observatory parallax correction for GCR fit ===
+	// Detect whether this tracklet candidate spans multiple observatories.
+	bool is_cross_obs_cand = false;
+	for(j=0; j<long(detindexvec.size()); j++) {
+	  if(strncmp(pairdets[detindexvec[j]].obscode, pairdets[pdct].obscode, MINSTRINGLEN) != 0) {
+	    is_cross_obs_cand = true;
+	    break;
 	  }
 	}
-	// Find worst error.  
-	worsterr = 0.0l;
-	for(j=0; j<long(timevec.size()); j++) {
-	  if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
-	    worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
-	    worstpoint = j;
-	  }
-	}
-	// Reject successive points until either there are only three left
-	// or the worst error drops below maxgcr.
-	while(worsterr>maxgcr && timevec.size()>3 && long(timevec.size())>=mintrkpts) {
-	  // Reject the worst point
-	  trkptnum=timevec.size();
-	  for(j=worstpoint; j<trkptnum-1; j++) {
-	    timevec[j] = timevec[j+1];
-	    xvec[j] = xvec[j+1];
-	    yvec[j] = yvec[j+1];
-	    detindexvec[j] = detindexvec[j+1];
-	  }
-	  trkptnum--;
-	  timevec.resize(trkptnum);
-	  xvec.resize(trkptnum);
-	  yvec.resize(trkptnum);
-	  detindexvec.resize(trkptnum);	  
-	  if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	    cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	    cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	    cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	    return(6);
-	  }
-	  // Perform fit to projected x coordinate as a function of time
-	  linfituw01(timevec, xvec, slopex, interceptx);
-	  // Perform fit to projected y coordinate as a function of time
-	  linfituw01(timevec, yvec, slopey, intercepty);
-	  // Load vector of residuals
-	  fiterr = {};
-	  for(j=0; j<long(timevec.size()); j++) {
-	    fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
-	  }
-	  // Find worst error.  
-	  worsterr = 0.0l;
-	  if(fiterr.size() != timevec.size()) {
-	    cerr << "Error: fiterr and timevec have different sizes: " << fiterr.size() << "vs. " << timevec.size() << "\n";
-	    return(7);
-	  }
-	  for(j=0; j<long(timevec.size()); j++) {
-	    if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
-	      worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
-	      worstpoint = j;
+	bool gcr_accepted = false;
+	if(is_cross_obs_cand && !img_log.empty()) {
+	  // Try K trial geocentric distances. Apply a parallax correction to x/y
+	  // (offsetting each detection to "as seen from pdct's observatory"), then run
+	  // the GCR fit. Accept on the first passing trial.
+	  static const double gcr_d_trials[] = {0.05, 0.5, 5.0, 50.0};
+	  double ra0_rad = pairdets[pdct].RA / DEGPRAD;
+	  double dec0_rad = pairdets[pdct].Dec / DEGPRAD;
+	  double east_hat[3]  = {-sin(ra0_rad), cos(ra0_rad), 0.0};
+	  double north_hat[3] = {-sin(dec0_rad)*cos(ra0_rad), -sin(dec0_rad)*sin(ra0_rad), cos(dec0_rad)};
+	  long anchor_img = pairdets[pdct].image;
+	  double obs0x = img_log[anchor_img].X;
+	  double obs0y = img_log[anchor_img].Y;
+	  double obs0z = img_log[anchor_img].Z;
+	  vector<double> timevec_save = timevec, xvec_save = xvec, yvec_save = yvec;
+	  vector<long> detindexvec_save = detindexvec;
+	  for(int ktry=0; ktry<4 && !gcr_accepted; ktry++) {
+	    double d_au = gcr_d_trials[ktry];
+	    double inv_d_km = 1.0 / (d_au * AU_KM);
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	    for(j=0; j<long(detindexvec.size()); j++) {
+	      long img_j = pairdets[detindexvec[j]].image;
+	      double dpx = (obs0x - img_log[img_j].X) * inv_d_km;
+	      double dpy = (obs0y - img_log[img_j].Y) * inv_d_km;
+	      double dpz = (obs0z - img_log[img_j].Z) * inv_d_km;
+	      xvec[j] += (dpx*east_hat[0] + dpy*east_hat[1] + dpz*east_hat[2]) * (DEGPRAD*3600.0);
+	      yvec[j] += (dpx*north_hat[0] + dpy*north_hat[1] + dpz*north_hat[2]) * (DEGPRAD*3600.0);
+	    }
+	    double we = gcr_fit_trail(timevec, xvec, yvec, detindexvec, pairdets, mintrkpts, maxgcr, slopex, slopey, interceptx, intercepty);
+	    if(we <= maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
+	      worsterr = we;
+	      gcr_accepted = true;
 	    }
 	  }
+	  if(!gcr_accepted) {
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	  }
 	}
+	if(!gcr_accepted) {
+	  worsterr = gcr_fit_trail(timevec, xvec, yvec, detindexvec, pairdets, mintrkpts, maxgcr, slopex, slopey, interceptx, intercepty);
+	}
+	// === End Option B ===
 	if(worsterr<=maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
 	  // We succeeded in finding a tracklet with no time-duplicates, and
 	  // no outliers beyond maxgcr. Prepare to write it to the pair file.
@@ -32035,7 +32103,7 @@ int make_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   }
   cout << "Sanity-check finished\n";
    
-  status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+  status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
   if(status!=0) {
     cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
     return(status);
@@ -32116,7 +32184,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     }
     cout << "Sanity-check finished\n";
   
-    status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
     if(status!=0) {
       cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32155,7 +32223,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     }
     cout << "Sanity-check finished\n";
   
-    status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
     if(status!=0) {
       cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32467,7 +32535,7 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
 
       // sanity check performed inside find_pairs()
 
-      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32493,7 +32561,7 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
 
       // sanity check performed inside find_pairs()
 
-      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32840,7 +32908,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
 
       // sanity check performed inside find_pairs()
 
-      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32866,7 +32934,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
 
       // sanity check performed inside find_pairs()
 
-      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32999,7 +33067,7 @@ int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, 
   }
   cout << "Sanity-check finished\n";
    
-  status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+  status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
   if(status!=0) {
     cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
     return(status);
@@ -33096,7 +33164,7 @@ int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log,
     }
     cout << "Sanity-check finished\n";
    
-    status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
     if(status!=0) {
       cerr << "ERROR: merge_trailpairs reports failure status " << status << "\n";
       return(status);
@@ -33134,7 +33202,7 @@ int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log,
     }
     cout << "Sanity-check finished\n";
    
-    status = merge_trailpairs(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_trailpairs(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
     if(status!=0) {
       cerr << "ERROR: merge_trailpairs reports failure status " << status << "\n";
       return(status);
