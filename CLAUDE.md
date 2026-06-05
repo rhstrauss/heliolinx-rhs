@@ -109,7 +109,24 @@ upstream.
 - **parse_trk2det** — utility over tracklet-to-detection files.
 - **label_hldet** — label detections in heliolinc output.
 - **label_hldet_mpc** (rhs) — cross-match heliolinc detections against the MPC catalog.
+  Loads obs80 files fully into RAM (in-memory 4D k-d tree) — fine for per-obscode
+  files, infeasible for the full ~40 GB archive (see `mpcat_check`).
 - **analyze_linkage01a** — linkage diagnostics.
+
+### MPC measurement-existence check (rhs, 2026-06)
+- **mpcat_index** (rhs) — build-once: stream the MPC bulk obs80 archives
+  (`NumObs.txt`+`UnnObs.txt`) into a compact **time-sorted binary catalog**
+  `mpcat.bin` (+ `.hdr` sidecar) of `mpcdet` records. Memory-heavy (~30 GB);
+  run on a big-RAM node (`KLONE_SCRIPTS/build_mpcat_index.sh`).
+- **mpcat_check** (rhs) — heliolinx-native, git-installable C++ counterpart of the
+  standalone Python `~/bin/mpcat_check`, and the rapid pre-indexed analogue of
+  `label_hldet_mpc`. Determines *exactly which input measurements already exist in
+  the MPC*: mmap's `mpcat.bin`, binary-searches only the input's MJD window, builds
+  the same 4D (time+sky) k-d tree over that slice, and per-detection reports
+  `in_mpc` + matched packed designation. Input is `mpc80` or `pairdets`
+  (`-informat`, auto by extension). `-matchrad -timerad -matchobscode -out
+  -unmatched_out`. Catalogs: klone `/gscratch/.../mpcat/`, gondor
+  `/astro/store/shire/rstrau/mpcat/`. See `mpcat_check_design.md`.
 
 ### Testing / injection
 - **inject_fakes** (rhs, 2026-06) — synthetic small-body injection. Fully arg-driven
@@ -127,6 +144,11 @@ upstream.
   link_planarity geometry) for the `-max_oop` pre-cull.
 - `gcr_fit_pairs` / `gcr_fit_trail` — factored GCR-fit helpers enabling the
   cross-observatory parallax tracklet feature.
+- `mpcdet` (struct, in `.h`) — fixed-layout 56-byte POD MPC observation record
+  (MJD, RA, Dec, mag, band, obscode, packed designation) for the mmap'd
+  `mpcat.bin` catalog. `mpcat_parse_obs80line(line, mpcdet&)` — quiet/fast obs80
+  → `mpcdet` parser (skips 2-line satellite/radar/malformed lines silently) so
+  `mpcat_index` can stream the full archive. Used by `mpcat_index`/`mpcat_check`.
 
 ## Recent major work (2026-05 → 2026-06, omp_dev)
 1. `heliolinc_lowmem_omp` parallel cross-hypothesis funnel dedup (`c0b6ad9`).
@@ -136,6 +158,9 @@ upstream.
 4. `inject_fakes` made git-installable (`ec3d6ef`).
 5. Cross-observatory parallax tracklet feature in make_tracklets (`1dc9a14`).
 6. klone ↔ gondor ↔ GitHub reconciled to one `omp_dev` tip.
+7. `mpcat_index` + `mpcat_check`: pre-indexed (time-sorted binary `mpcat.bin`)
+   MPC measurement-existence checker; scales `label_hldet_mpc`'s 4D match to the
+   full ~40 GB archive via mmap + MJD-window binary search.
 
 ## Gotchas
 - An experimental **H-magnitude filter** (`-minH/-maxH/-maxHspread` in

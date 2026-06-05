@@ -21039,6 +21039,77 @@ double mpc80_mjd(const string &lnfromfile)
   return(MJD);
 }
 
+// mpcat_parse_obs80line: June 04, 2026:
+// Quiet, fast parser of a single MPC 80-column observation line into a
+// compact mpcdet record for the pre-indexed mpcat catalog (mpcat_index /
+// mpcat_check). Unlike mpc80_parseline this NEVER writes to cerr and returns
+// nonzero silently on any line that should be skipped -- e.g. the position
+// (second) line of a two-line satellite/roving record, radar lines, or any
+// malformed line. This lets mpcat_index stream the full ~539M-line MPC
+// archive and silently keep only the optical RA/Dec observations.
+// Field columns follow mpc80_parseline (the trusted reader); the only
+// difference is quiet error handling and population of an mpcdet POD.
+// Returns 0 on success, nonzero (skip this line) otherwise.
+int mpcat_parse_obs80line(const string &lnfromfile, mpcdet &out)
+{
+  if(lnfromfile.size() < 80) return(1);
+  int i;
+  string sdat;
+  char c;
+  int year, month;
+  double day, hour, mins, sec, deg;
+  char decsign;
+  double MJD, RA, Dec, mag;
+  string packed, band, obscode;
+  MJD = RA = Dec = mag = 0.0;
+
+  try {
+    // Packed designation, cols 1-12 (indices 0-11); strip spaces and discovery '*'.
+    for(i=0;i<12;i++) { c=lnfromfile[i]; if(c!=' ' && c!='*') packed.push_back(c); }
+    if(packed.empty()) return(2);
+
+    // Date: year cols 16-19, month 21-22, day 24-32 (indices 15-18, 20-21, 23-31).
+    sdat={}; for(i=15;i<19;i++) sdat.push_back(lnfromfile[i]); year = stoi(sdat);
+    sdat={}; for(i=20;i<22;i++) sdat.push_back(lnfromfile[i]); month = stoi(sdat);
+    sdat={}; for(i=23;i<32;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } day = stod(sdat);
+    if(year<1900 || month<1 || month>12 || day<1.0 || day>32.0) return(3);
+    MJD = MPCcal2MJD(year,month,day);
+
+    // Right Ascension: hours 33-34, minutes 36-37, seconds 39-44.
+    sdat={}; for(i=32;i<34;i++) sdat.push_back(lnfromfile[i]); hour = stod(sdat);
+    sdat={}; for(i=35;i<37;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } mins = sdat.empty()?0.0:stod(sdat);
+    sdat={}; for(i=38;i<44;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } sec = sdat.empty()?0.0:stod(sdat);
+    RA = 15.0*hour + mins/4.0 + sec/240.0;
+    if(RA<0.0 || RA>360.0) return(4);
+
+    // Declination: sign 45, degrees 46-47, minutes 49-50, seconds 52-56.
+    decsign = lnfromfile[44];
+    if(decsign!='+' && decsign!='-') return(5);
+    sdat={}; for(i=45;i<47;i++) sdat.push_back(lnfromfile[i]); deg = stod(sdat);
+    sdat={}; for(i=48;i<50;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } mins = sdat.empty()?0.0:stod(sdat);
+    sdat={}; for(i=51;i<56;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } sec = sdat.empty()?0.0:stod(sdat);
+    Dec = deg + mins/60.0 + sec/3600.0;
+    if(decsign=='-') Dec = -Dec;
+    if(Dec<-90.0 || Dec>90.0) return(6);
+
+    // Magnitude cols 66-70 (indices 65-69); absent -> 0.0.
+    sdat={}; for(i=65;i<70;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } mag = sdat.empty()?0.0:stod(sdat);
+
+    // Band col 71 (index 70); blank -> empty.
+    c = lnfromfile[70];
+    if(c!=' ') band.push_back(c);
+
+    // Observatory code cols 78-80 (indices 77-79).
+    for(i=77;i<80;i++) obscode.push_back(lnfromfile[i]);
+  } catch(...) {
+    // Any stoi/stod failure: this is not a parseable optical obs line -> skip.
+    return(99);
+  }
+
+  out = mpcdet(MJD, RA, Dec, float(mag), band, obscode, packed);
+  return(0);
+}
+
 // read_obscode_file: March 14, 2023
 // Read a uniformly-formatted observatory code file into a vector
 // of type 'observatory'. This will only work properly in the input

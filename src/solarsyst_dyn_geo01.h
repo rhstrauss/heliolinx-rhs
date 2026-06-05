@@ -111,6 +111,7 @@ using namespace std;
                                    // the sun with a semimajor axis of 1AU.
 #define MINSTRINGLEN 5 // Minimum size of character array we use: e.g., for filter bandpass or obscode.
 #define SHORTSTRINGLEN 20 // Standard size for a short-ish string, used, e.g. for detection idstring
+#define MPCPACKEDLEN 13 // 12-char MPC packed designation (cols 1-12) plus null terminator
 #define MEDSTRINGLEN 80 // Medium string length, should hold most file paths
 #define LONGSTRINGLEN 256 // Should hold any reasonable file path, use if not pressed for memory.
 #define RAND_MAX_64 18446744073709551616.0L
@@ -364,6 +365,29 @@ public:
     this->obscode[sizeof(this->obscode)-1] = 0;
   }
   hldet() = default;
+};
+
+class mpcdet{ // Compact MPC observation record for the pre-indexed mpcat catalog
+              // (built by mpcat_index, queried by mpcat_check). Deliberately a
+              // fixed-layout, trivially-copyable POD so the catalog can be written
+              // and mmap'd as a raw mpcdet[] sorted by MJD.
+public:
+  double MJD;                     // Modified Julian Date (UTC)
+  double RA;                      // Right Ascension, decimal degrees
+  double Dec;                     // Declination, decimal degrees
+  float mag;                      // Magnitude (0.0 if absent in the obs80 line)
+  char band[MINSTRINGLEN];        // photometric band
+  char obscode[MINSTRINGLEN];     // Observatory code (obs80 cols 78-80)
+  char packed[MPCPACKEDLEN];      // packed designation (obs80 cols 1-12)
+  mpcdet(double mjd, double ra, double dec, float mag, const string &band, const string &obscode, const string &packed) :MJD(mjd), RA(ra), Dec(dec), mag(mag) {
+    std::strncpy(this->band, band.c_str(), sizeof(this->band));
+    this->band[sizeof(this->band)-1] = 0;
+    std::strncpy(this->obscode, obscode.c_str(), sizeof(this->obscode));
+    this->obscode[sizeof(this->obscode)-1] = 0;
+    std::strncpy(this->packed, packed.c_str(), sizeof(this->packed));
+    this->packed[sizeof(this->packed)-1] = 0;
+  }
+  mpcdet() = default;
 };
 
 class hlimage{ // Astronomical image with MJD of mid-exposure, boresight RA and Dec,
@@ -1953,6 +1977,7 @@ int read_obscode_file2(string obscodefile,  vector <observatory> &observatory_li
 int read_detection_filemt(string indetfile, int idcol, int mjdcol, int racol, int deccol, int magcol,int bandcol, int obscodecol, vector <det_obsmag_indvec> &detvec, int forcerun);
 int read_detection_filemt2(string indetfile, int mjdcol, int racol, int deccol, int magcol, int idcol, int bandcol, int obscodecol, int trail_len_col, int trail_PA_col, int sigmag_col, int sig_across_col, int sig_along_col, int known_obj_col, int det_qual_col, vector <hldet> &detvec, int verbose, int forcerun);
 int read_detection_file_MPC80(string indetfile, vector <hldet> &detvec);
+int mpcat_parse_obs80line(const string &lnfromfile, mpcdet &out);
 int read_pairdet_file(string pairdetfile, vector <hldet> &detvec, int verbose);
 int read_hldet_file(string pairdetfile, vector <hldet> &detvec, int verbose);
 int read_tracklet_file(string trackletfile, vector <tracklet> &tracklets, int verbose);
