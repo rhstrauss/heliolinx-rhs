@@ -16778,7 +16778,18 @@ double orbitchi_univar2(const point3d &objectpos, const point3d &objectvel, cons
     relpos.push_back(outpos.z);
     // Project the relative position vector onto the celestial sphere,
     // and calculate the derivatives of RA and Dec w.r.t the position.
-    statevec_to_celederiv(relpos, outRA, outDec, RA_deriv, Dec_deriv, verbose);
+    status = statevec_to_celederiv(relpos, outRA, outDec, RA_deriv, Dec_deriv, verbose);
+    if(status!=0 || RA_deriv.size()<3 || Dec_deriv.size()<3) {
+      // FIX (link_purify_chisq SIGSEGV, 2nd crash path): on degenerate geometry
+      // (e.g. a divergent integration giving |relpos| ~ 1e+106) statevec_to_celederiv
+      // returns an error code and leaves RA_deriv/Dec_deriv EMPTY. The original code
+      // ignored the status and then read RA_deriv[0..2]/Dec_deriv[0..2] just below,
+      // dereferencing zero-length vectors -> SIGSEGV. Bail out as a failed fit, exactly
+      // like the isnormal(ltt_dist) guard above; the caller's chisq>=LARGERR3 /
+      // short-crossresid guard then rejects the cluster instead of crashing.
+      chisq=LARGERR3;
+      return(chisq);
+    }
     fitRA.push_back(outRA);
     fitDec.push_back(outDec);
     // Calculate the relative velocity target minus observer
