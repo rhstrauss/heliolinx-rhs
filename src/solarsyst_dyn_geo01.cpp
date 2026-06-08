@@ -60097,6 +60097,22 @@ int heliolinc_alg_omp_lowmem_perhyp(const vector <hlimage> &image_log, const vec
   int wstat = dedup_write_survivors(survivors, heliodist, heliovel, helioacc, detvec, config.MJDref, sumfile_out, c2dfile_out);
   if(wstat != 0) return wstat;
 
+  // --- Remove the per-hyp intermediate files now that the bundled deduped pair
+  //     is safely written.  Gated on wstat==0 above: if the bundle write had
+  //     failed we return early and LEAVE the per-hyp files in place so the run
+  //     can be resumed ("skip if both per-hyp files already exist").  Only the
+  //     dedup (do_dedup) path reaches here; when do_dedup is false the per-hyp
+  //     files are the final product and we already returned without deleting.
+  long removed = 0;
+  for(long i=0; i<accelnum; i++) {
+    string sf = outsum_prefix    + "_" + to_string(i) + ".txt";
+    string cf = clust2det_prefix + "_" + to_string(i) + ".csv";
+    if(remove(sf.c_str()) == 0) removed++;   // tolerate already-absent (resume gaps)
+    if(remove(cf.c_str()) == 0) removed++;
+  }
+  cout << "Removed " << removed << " per-hyp intermediate files (" << accelnum
+       << " hyp pairs) after bundle write\n";
+
   return(0);
 }
 
