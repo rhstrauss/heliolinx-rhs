@@ -14,6 +14,13 @@ CXXFLAGS ?= -O3 -march=native
 PROGRAMS_PATH = $(PREFIX)/bin
 PROGRAMS = make_tracklets make_tracklets_omp heliolinc heliolinc_omp heliolinc_lowmem heliolinc_lowmem_omp heliolinc_estimate heliovane link_purify link_purify_omp link_planarity link_planarity_omp link_purify_chisq link_purify_chisq_omp parse_clust2det_MPC80 parse_clust2det modsplit_hlfile merge_tracklet_files merge_det_catalogs split_tracklets_by_time make_trailed_tracklets make_trailed_tracklets_omp parse_trk2det calc_heliohypmat label_hldet label_hldet_mpc helio_highgrade helio_highgrade_omp analyze_linkage01a dedup_across_windows inject_fakes mpcat_index mpcat_check
 
+# Standalone (non-compiled) scripts installed to bin/ alongside the C++ PROGRAMS.
+# Each is installed as bin/<name> with the source suffix stripped (reverse_design.py
+# -> bin/reverse_design) so it invokes like any other heliolinx tool. Source of
+# truth lives in src/; bin/ is git-ignored. `make all` does NOT touch these (they
+# are not compiled); they are copied only by `make install`.
+SCRIPTS = reverse_design.py
+
 LIB = libheliolinx.a
 LIB_SOURCES = solarsyst_dyn_geo01.cpp
 
@@ -26,6 +33,7 @@ all: $(PROGRAMS)
 install: $(PROGRAMS)
 	mkdir -p $(PREFIX)/bin
 	cp -p $(PROGRAMS) $(PREFIX)/bin
+	@ for s in $(SCRIPTS); do echo "install -m 755 $$s $(PREFIX)/bin/$${s%.py}"; install -m 755 $$s $(PREFIX)/bin/$${s%.py}; done
 
 $(PROGRAMS): %: %.o $(LIB)
 	$(CXX) $< -L. -lheliolinx -fopenmp $(OUTPUT_OPTION)
