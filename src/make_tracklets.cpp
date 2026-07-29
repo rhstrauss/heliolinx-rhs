@@ -6,6 +6,7 @@
 
 #include "solarsyst_dyn_geo01.h"
 #include "cmath"
+#include <omp.h>
 #define NUMPOS 3
 
 #define IDCOL 1

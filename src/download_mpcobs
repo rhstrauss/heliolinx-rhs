@@ -1,0 +1,176 @@
+#!/bin/bash
+# download_mpcobs — Download MPC observations and filter by observatory code.
+#
+# Usage:
+#   download_mpcobs [-o outdir] [-k] obscode1 [obscode2 ...]
+#
+# Example (ATLAS observatories):
+#   download_mpcobs -o mpcobs_atlas T05 T08 M22 W68
+#
+# Downloads the MPC's bulk observation archives (NumObs + UnnObs) and
+# filters them to extract only lines from the specified observatory codes.
+# Output files are in MPC 80-column format, one per observatory code.
+#
+# The bulk files are large (~10-20 GB compressed). Use -k to keep them
+# after filtering so you don't have to re-download for different codes.
+
+set -euo pipefail
+
+OUTDIR="."
+KEEP_BULK=0
+BASE_URL="https://www.minorplanetcenter.net/iau/ECS/MPCAT-OBS"
+# Bulk observation archives (MPC 80-column format, gzipped)
+BULK_FILES="NumObs.txt.gz UnnObs.txt.gz"
+
+usage() {
+    cat <<'EOF'
+Usage: download_mpcobs [-o outdir] [-k] obscode1 [obscode2 ...]
+
+Download MPC 80-column observations for given observatory codes.
+
+This downloads the MPC's bulk observation archives (numbered + unnumbered
+minor planets) and filters them by observatory code (columns 78-80 in
+MPC 80-column format).
+
+Options:
+  -o DIR   Output directory (default: current directory)
+  -k       Keep bulk download files after filtering (saves re-downloading)
+
+Example (ATLAS observatories):
+  download_mpcobs -o mpcobs_atlas T05 T08 M22 W68
+
+Note: The bulk files are large (NumObs ~10 GB, UnnObs ~5 GB compressed).
+First run will take a while to download. Use -k to cache them.
+EOF
+    exit 1
+}
+
+fetch() {
+    local url="$1" dest="$2"
+    if command -v wget >/dev/null 2>&1; then
+        wget -c -q --show-progress -O "$dest" "$url" && return 0
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -fSL -C - -o "$dest" "$url" && return 0
+    fi
+    echo "ERROR: neither wget nor curl available" >&2
+    return 1
+}
+
+# Parse options
+while getopts "o:kh" opt; do
+    case "$opt" in
+        o) OUTDIR="$OPTARG" ;;
+        k) KEEP_BULK=1 ;;
+        h) usage ;;
+        *) usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+if [ $# -eq 0 ]; then
+    echo "ERROR: no observatory codes specified"
+    usage
+fi
+
+OBSCODES=("$@")
+mkdir -p "$OUTDIR"
+
+# Build a grep pattern that matches any of the requested observatory codes
+# in columns 78-80 of MPC 80-column format (0-indexed: 77-79)
+# We use a fixed-string grep on the obscode field at the end of each line.
+# MPC 80-col lines have the obscode at positions 77-79 (1-indexed: 78-80).
+build_awk_filter() {
+    local codes=("$@")
+    local cond=""
+    for code in "${codes[@]}"; do
+        # Pad to 3 chars if needed
+        local padded
+        padded=$(printf '%-3s' "$code")
+        if [ -n "$cond" ]; then
+            cond="$cond || "
+        fi
+        cond="${cond}substr(\$0,78,3)==\"${padded}\""
+    done
+    echo "$cond"
+}
+
+AWK_FILTER=$(build_awk_filter "${OBSCODES[@]}")
+echo "Observatory codes to extract: ${OBSCODES[*]}"
+echo "Output directory: $OUTDIR"
+echo ""
+
+# Initialize output files (empty)
+for code in "${OBSCODES[@]}"; do
+    > "$OUTDIR/${code}.txt"
+done
+
+# Download and filter each bulk archive
+for bulk in $BULK_FILES; do
+    bulkpath="$OUTDIR/$bulk"
+    url="${BASE_URL}/${bulk}"
+
+    echo "=== Processing $bulk ==="
+
+    # Download if not already present
+    if [ -f "$bulkpath" ]; then
+        echo "  Using cached $bulkpath"
+    else
+        echo "  Downloading $url ..."
+        fetch "$url" "$bulkpath" || {
+            echo "  ERROR: failed to download $bulk. Skipping."
+            continue
+        }
+    fi
+
+    echo "  Filtering by observatory code..."
+    # Stream-decompress and filter in one pass, appending to per-obscode files.
+    # MPC 80-col format: obscode is at fixed positions 77-79 (0-indexed).
+    export OBSCODES_STR="${OBSCODES[*]}"
+    gunzip -c "$bulkpath" | awk -v outdir="$OUTDIR" '
+    BEGIN {
+        n = split(ENVIRON["OBSCODES_STR"], arr, " ")
+        for (i = 1; i <= n; i++) {
+            fname = outdir "/" arr[i] ".txt"
+            targets[fname] = arr[i]
+        }
+    }
+    length($0) >= 80 {
+        code = substr($0, 78, 3)
+        gsub(/ +$/, "", code)
+        fname = outdir "/" code ".txt"
+        if (fname in targets) {
+            print >> fname
+        }
+    }
+    ' || {
+        echo "  WARNING: error during filtering of $bulk"
+    }
+
+    # Clean up bulk file unless -k specified
+    if [ "$KEEP_BULK" -eq 0 ]; then
+        echo "  Removing $bulkpath (use -k to keep)"
+        rm -f "$bulkpath"
+    fi
+done
+
+# Report results
+echo ""
+echo "=== Results ==="
+total=0
+for code in "${OBSCODES[@]}"; do
+    f="$OUTDIR/${code}.txt"
+    if [ -s "$f" ]; then
+        lines=$(wc -l < "$f")
+        size=$(du -h "$f" | cut -f1)
+        echo "  ${code}: ${lines} observations (${size})"
+        total=$((total + lines))
+    else
+        echo "  ${code}: 0 observations (file empty)"
+        rm -f "$f"  # remove empty file
+    fi
+done
+echo "  Total: ${total} observations"
+echo ""
+echo "Output files in $OUTDIR/"
+ls -lh "$OUTDIR"/*.txt 2>/dev/null || echo "(no files)"

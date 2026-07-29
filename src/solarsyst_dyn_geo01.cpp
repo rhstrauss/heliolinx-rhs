@@ -112,107 +112,52 @@ string char64_getstring(const char64_index &ci) {
 // on, they can only be used in zero-indexed loops.
 void make_ivec(long nx, vector <int> &ivec)
 {
-  long i=0;
-  ivec={};
-  for(i=0;i<nx;i++) ivec.push_back(0);
+  ivec.assign(nx, 0);
 }
 
 void make_imat(int nx, int ny, vector <vector <int>> &imat)
 {
-  int i=0;
-  int j=0;
-  vector <int> tvec;
-  imat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0);
-    imat.push_back(tvec);
-  }
+  imat.assign(nx, vector<int>(ny, 0));
 }
 
 void make_lvec(int nx, vector <long> &lvec)
 {
-  int i=0;
-  lvec={};
-  for(i=0;i<nx;i++) lvec.push_back(0);
+  lvec.assign(nx, 0);
 }
 
 void make_lmat(int nx, int ny, vector <vector <long>> &lmat)
 {
-  int i=0;
-  int j=0;
-  vector <long> tvec;
-  lmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0);
-    lmat.push_back(tvec);
-  }
+  lmat.assign(nx, vector<long>(ny, 0));
 }
 
 void make_cvec(int nx, vector <char> &cvec)
 {
-  int i=0;
-  cvec={};
-  for(i=0;i<nx;i++) cvec.push_back('\0');
+  cvec.assign(nx, '\0');
 }
 
 void make_cmat(int nx, int ny, vector <vector <char>> &cmat)
 {
-  int i=0;
-  int j=0;
-  vector <char> tvec;
-  cmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back('\0');
-    cmat.push_back(tvec);
-  }
+  cmat.assign(nx, vector<char>(ny, '\0'));
 }
 
 void make_dvec(int nx, vector <double> &dvec)
 {
-  int i=0;
-  dvec={};
-  for(i=0;i<nx;i++) dvec.push_back(0.0);
+  dvec.assign(nx, 0.0);
 }
 
 void make_dmat(int nx, int ny, vector <vector <double>> &dmat)
 {
-  int i=0;
-  int j=0;
-  vector <double> tvec;
-  dmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0.0);
-    dmat.push_back(tvec);
-  }
+  dmat.assign(nx, vector<double>(ny, 0.0));
 }
 
 void make_LDvec(int nx, vector <long double> &ldvec)
 {
-  int i=0;
-  ldvec={};
-  for(i=0;i<nx;i++) ldvec.push_back(0.0l);
+  ldvec.assign(nx, 0.0l);
 }
 
 void make_LDmat(int nx, int ny, vector <vector <long double>> &ldmat)
 {
-  int i=0;
-  int j=0;
-  vector <long double> tvec;
-  ldmat = {};
-  
-  for(i=0;i<nx;i++) {
-    tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0.0l);
-    ldmat.push_back(tvec);
-  }
+  ldmat.assign(nx, vector<long double>(ny, 0.0l));
 }
 
 double dotprod3d(point3d p1, point3d p2)
@@ -663,7 +608,9 @@ int splitxy(const vector <xy_index> &xyvec, int dim, long unsigned int splitpoin
   long unsigned int i=0;
   double xval = xyvec[splitpoint].x;
   double yval = xyvec[splitpoint].y;
-  
+
+  left.reserve(xyvec.size());
+  right.reserve(xyvec.size());
   if(dim%2==1) {
     // Split on x
     for(i=0 ; i<xyvec.size() ; i++) {
@@ -2931,6 +2878,56 @@ int kdtree_6i01(const vector <point6ix2> &invec, int dim, long unsigned int spli
     }
 
   return(0);
+}
+
+// kdtree_6i01_inner: internal recursive helper for kdtree_6i01_fast.
+// Builds a subtree for pts[lo..hi-1] splitting on `dim`, appending nodes
+// to kdvec in pre-order.  Returns the kdvec index of the subtree root,
+// or -1 if the range is empty.
+static long kdtree_6i01_inner(vector<point6ix2> &pts, long lo, long hi, int dim, vector<KD_point6ix2> &kdvec)
+{
+  if(hi <= lo) return -1;
+  long mid = lo + (hi - lo) / 2;
+  // nth_element rearranges pts[lo..hi-1] so that pts[mid] holds the element
+  // that would be at that position in a sorted array, with all elements in
+  // pts[lo..mid-1] <= pts[mid] and all elements in pts[mid+1..hi-1] >= pts[mid]
+  // in the chosen dimension.  This is O(N) vs the O(N log N) full sort used
+  // by medind_6ix2.
+  switch(dim % 6) {
+    case 1: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_x());  break;
+    case 2: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_y());  break;
+    case 3: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_z());  break;
+    case 4: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_vx()); break;
+    case 5: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_vy()); break;
+    default: std::nth_element(pts.begin()+lo, pts.begin()+mid, pts.begin()+hi, lower_point6ix2_vz()); break;
+  }
+  int nextdim = dim % 6 + 1; // cycles 1->2->3->4->5->6->1
+  // Reserve the slot for this node before recursing so nodeIdx stays valid
+  // even after push_backs during recursion (we use an index, not a reference).
+  long nodeIdx = (long)kdvec.size();
+  kdvec.push_back(KD_point6ix2(pts[mid], -1, -1, dim, -1));
+  long leftIdx  = kdtree_6i01_inner(pts, lo,    mid, nextdim, kdvec);
+  kdvec[nodeIdx].left  = leftIdx;
+  long rightIdx = kdtree_6i01_inner(pts, mid+1, hi,  nextdim, kdvec);
+  kdvec[nodeIdx].right = rightIdx;
+  return nodeIdx;
+}
+
+// kdtree_6i01_fast: March 2026.
+// Drop-in replacement for the medind_6ix2 + kdtree_6i01 construction
+// pattern.  Builds a balanced 6-D k-d tree from `pts` in O(N log N) time
+// with O(N) memory and no heap-allocated sub-vectors per level.
+// The resulting kdvec is compatible with kdrange_6i01 and KDRclust_6i01:
+// the root is always at index 0.
+// NOTE: the order of elements in `pts` is changed by this function.
+// Returns 0 on success, 1 if pts is empty (kdvec will be empty).
+int kdtree_6i01_fast(vector<point6ix2> &pts, vector<KD_point6ix2> &kdvec)
+{
+  kdvec.clear();
+  if(pts.empty()) return 1;
+  kdvec.reserve(pts.size());
+  kdtree_6i01_inner(pts, 0, (long)pts.size(), 1, kdvec);
+  return 0;
 }
 
 // point6ix2_dist2: January 07, 2022:
@@ -7623,6 +7620,83 @@ int helioproj02(point3d unitbary, point3d obsbary, double heliodist, vector <dou
   return(-1);
 }
 
+// helioproj02_fast: like helioproj02 but uses pre-computed invariants (b_pre, barydist2)
+// to avoid recomputing dot products that are invariant across hypotheses.
+// b_pre = 2*dot(unitbary, obsbary); barydist2 = dot(obsbary, obsbary).
+int helioproj02_fast(point3d unitbary, point3d obsbary, double b_pre, double barydist2,
+                     double heliodist, vector <double> &geodist, vector <point3d> &projbary)
+{
+  double alphapos, alphaneg;
+  point3d barypos = point3d(0.0l,0.0l,0.0l);
+
+  // Clear outputs
+  geodist = {};
+  projbary = {};
+
+  double c = barydist2 - heliodist*heliodist;
+  double disc = b_pre*b_pre - 4.0l*c;  // a=1
+
+  if(disc >= 0.0l) {
+    double sqrtdisc = sqrt(disc);
+    alphapos = (-b_pre + sqrtdisc)*0.5l;
+    if(alphapos > 0.0l) {
+      geodist.push_back(alphapos);
+      barypos.x = obsbary.x + alphapos*unitbary.x;
+      barypos.y = obsbary.y + alphapos*unitbary.y;
+      barypos.z = obsbary.z + alphapos*unitbary.z;
+      projbary.push_back(barypos);
+      alphaneg = (-b_pre - sqrtdisc)*0.5l;
+      if(alphaneg > 0.0l) {
+        geodist.push_back(alphaneg);
+        barypos.x = obsbary.x + alphaneg*unitbary.x;
+        barypos.y = obsbary.y + alphaneg*unitbary.y;
+        barypos.z = obsbary.z + alphaneg*unitbary.z;
+        projbary.push_back(barypos);
+        return(2);
+      }
+      return(1);
+    }
+  }
+  // No valid solution
+  barypos = point3d(0.0l,0.0l,-10000.0l);
+  projbary.push_back(barypos);
+  geodist.push_back(10000.0);
+  return(-1);
+}
+
+// precompute_tracklet_proj_cache: compute hypothesis-invariant quantities for all tracklets.
+// Call once before the hypothesis loop; pass the result to the cache overload of trk2statevec_fgfuncRR.
+int precompute_tracklet_proj_cache(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, vector <TrackletProjCache> &cache)
+{
+  long pairnum = tracklets.size();
+  cache.resize(pairnum);
+  for(long pairct = 0; pairct < pairnum; pairct++) {
+    long i1 = tracklets[pairct].Img1;
+    long i2 = tracklets[pairct].Img2;
+    // Endpoint 1
+    celestial_to_stateunit(tracklets[pairct].RA1, tracklets[pairct].Dec1, cache[pairct].unitbary1);
+    cache[pairct].obsbary1 = point3d(image_log[i1].X, image_log[i1].Y, image_log[i1].Z);
+    cache[pairct].barydist2_1 = dotprod3d(cache[pairct].obsbary1, cache[pairct].obsbary1);
+    cache[pairct].b1 = 2.0l * dotprod3d(cache[pairct].unitbary1, cache[pairct].obsbary1);
+    // Endpoint 2
+    celestial_to_stateunit(tracklets[pairct].RA2, tracklets[pairct].Dec2, cache[pairct].unitbary2);
+    cache[pairct].obsbary2 = point3d(image_log[i2].X, image_log[i2].Y, image_log[i2].Z);
+    cache[pairct].barydist2_2 = dotprod3d(cache[pairct].obsbary2, cache[pairct].obsbary2);
+    cache[pairct].b2 = 2.0l * dotprod3d(cache[pairct].unitbary2, cache[pairct].obsbary2);
+    // Angular rate (rad/day) for hypothesis-level pre-filtering
+    double dRA = tracklets[pairct].RA2 - tracklets[pairct].RA1;
+    if(dRA > 180.0) dRA -= 360.0;
+    if(dRA < -180.0) dRA += 360.0;
+    double dDec = tracklets[pairct].Dec2 - tracklets[pairct].Dec1;
+    double meanDec = 0.5*(tracklets[pairct].Dec1 + tracklets[pairct].Dec2) * M_PI / 180.0;
+    // Convert to arc (degrees), treating dRA as great-circle separation component
+    double sep_deg = sqrt(DSQUARE(dRA*cos(meanDec)) + DSQUARE(dDec));
+    double dt_days = image_log[i2].MJD - image_log[i1].MJD;
+    cache[pairct].ang_rate_rad_per_day = (dt_days > 0.0) ? (sep_deg * M_PI / 180.0 / dt_days) : 0.0;
+  }
+  return(0);
+}
+
 
 // accelcalc01LD: December 01, 2021
 // Given a vector of planet positions for a particular instant in time,
@@ -8335,31 +8409,38 @@ int Kepler_fg_func_int(const double MGsun, const double mjdstart, const point3d 
     x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
   }
 
-  // Newton's Method solution for x
-  q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+  // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton,
+  // saving ~2x sin/cos evaluations for the common case of low-eccentricity orbits.
+  // See halleysolver.md for derivation and benchmark notes.
+  double sin_x = sin(x);
+  double cos_x = cos(x);
+  q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
   while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
-    dqdx = 1.0l - EC*cos(x) + ES*sin(x);
-    dx = -q/dqdx;
+    dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+    double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+    double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+    dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
     x += dx;
-    q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+    sin_x = sin(x);
+    cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
     itct++;
-    // cout << "q, x, dqdx, dx: " << std::scientific << q << " " << x << " " << dqdx << " " << dx << "\n";
   }
 
-  // Evaluate f and g functions
+  // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
   double f,g,fdot,gdot,r,v;
   f = g = fdot = gdot = r = v = 0.0l;
-  
-  f = (a/r0)*(cos(x) - 1.0l) + 1.0l;
-  g = deltat + (sin(x) - x)/n;
-  
+
+  f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+  g = deltat + (sin_x - x)/n;
+
   endpos.x = f*startpos.x + g*startvel.x;
   endpos.y = f*startpos.y + g*startvel.y;
   endpos.z = f*startpos.z + g*startvel.z;
   r = vecabs3d(endpos);
 
-  fdot = -a*a*n*sin(x)/r/r0;
-  gdot = a*(cos(x)-1.0l)/r + 1.0l;
+  fdot = -a*a*n*sin_x/r/r0;
+  gdot = a*(cos_x-1.0l)/r + 1.0l;
   
   endvel.x = fdot*startpos.x + gdot*startvel.x;
   endvel.y = fdot*startpos.y + gdot*startvel.y;
@@ -8418,30 +8499,37 @@ int Kepler_fg_func_vec(const double MGsun, const double mjdstart, const point3d 
       x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
     }
 
-    // Newton's Method solution for x
-    q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+    // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton.
+    // See halleysolver.md for derivation and benchmark notes.
+    double sin_x = sin(x);
+    double cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
     while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
-      dqdx = 1.0l - EC*cos(x) + ES*sin(x);
-      dx = -q/dqdx;
+      dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+      double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+      double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+      dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
       x += dx;
-      q = x - EC*sin(x) + ES*(1.0l - cos(x)) - n*deltat;
+      sin_x = sin(x);
+      cos_x = cos(x);
+      q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
       itct++;
     }
 
-    // Evaluate f and g functions
+    // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
     double f,g,fdot,gdot,r,v;
     f = g = fdot = gdot = r = v = 0.0l;
-  
-    f = (a/r0)*(cos(x) - 1.0l) + 1.0l;
-    g = deltat + (sin(x) - x)/n;
-  
+
+    f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+    g = deltat + (sin_x - x)/n;
+
     posnow.x = f*startpos.x + g*startvel.x;
     posnow.y = f*startpos.y + g*startvel.y;
     posnow.z = f*startpos.z + g*startvel.z;
     r = vecabs3d(posnow);
 
-    fdot = -a*a*n*sin(x)/r/r0;
-    gdot = a*(cos(x)-1.0l)/r + 1.0l;
+    fdot = -a*a*n*sin_x/r/r0;
+    gdot = a*(cos_x-1.0l)/r + 1.0l;
   
     velnow.x = fdot*startpos.x + gdot*startvel.x;
     velnow.y = fdot*startpos.y + gdot*startvel.y;
@@ -16690,7 +16778,18 @@ double orbitchi_univar2(const point3d &objectpos, const point3d &objectvel, cons
     relpos.push_back(outpos.z);
     // Project the relative position vector onto the celestial sphere,
     // and calculate the derivatives of RA and Dec w.r.t the position.
-    statevec_to_celederiv(relpos, outRA, outDec, RA_deriv, Dec_deriv, verbose);
+    status = statevec_to_celederiv(relpos, outRA, outDec, RA_deriv, Dec_deriv, verbose);
+    if(status!=0 || RA_deriv.size()<3 || Dec_deriv.size()<3) {
+      // FIX (link_purify_chisq SIGSEGV, 2nd crash path): on degenerate geometry
+      // (e.g. a divergent integration giving |relpos| ~ 1e+106) statevec_to_celederiv
+      // returns an error code and leaves RA_deriv/Dec_deriv EMPTY. The original code
+      // ignored the status and then read RA_deriv[0..2]/Dec_deriv[0..2] just below,
+      // dereferencing zero-length vectors -> SIGSEGV. Bail out as a failed fit, exactly
+      // like the isnormal(ltt_dist) guard above; the caller's chisq>=LARGERR3 /
+      // short-crossresid guard then rejects the cluster instead of crashing.
+      chisq=LARGERR3;
+      return(chisq);
+    }
     fitRA.push_back(outRA);
     fitDec.push_back(outDec);
     // Calculate the relative velocity target minus observer
@@ -20951,6 +21050,77 @@ double mpc80_mjd(const string &lnfromfile)
   return(MJD);
 }
 
+// mpcat_parse_obs80line: June 04, 2026:
+// Quiet, fast parser of a single MPC 80-column observation line into a
+// compact mpcdet record for the pre-indexed mpcat catalog (mpcat_index /
+// mpcat_check). Unlike mpc80_parseline this NEVER writes to cerr and returns
+// nonzero silently on any line that should be skipped -- e.g. the position
+// (second) line of a two-line satellite/roving record, radar lines, or any
+// malformed line. This lets mpcat_index stream the full ~539M-line MPC
+// archive and silently keep only the optical RA/Dec observations.
+// Field columns follow mpc80_parseline (the trusted reader); the only
+// difference is quiet error handling and population of an mpcdet POD.
+// Returns 0 on success, nonzero (skip this line) otherwise.
+int mpcat_parse_obs80line(const string &lnfromfile, mpcdet &out)
+{
+  if(lnfromfile.size() < 80) return(1);
+  int i;
+  string sdat;
+  char c;
+  int year, month;
+  double day, hour, mins, sec, deg;
+  char decsign;
+  double MJD, RA, Dec, mag;
+  string packed, band, obscode;
+  MJD = RA = Dec = mag = 0.0;
+
+  try {
+    // Packed designation, cols 1-12 (indices 0-11); strip spaces and discovery '*'.
+    for(i=0;i<12;i++) { c=lnfromfile[i]; if(c!=' ' && c!='*') packed.push_back(c); }
+    if(packed.empty()) return(2);
+
+    // Date: year cols 16-19, month 21-22, day 24-32 (indices 15-18, 20-21, 23-31).
+    sdat={}; for(i=15;i<19;i++) sdat.push_back(lnfromfile[i]); year = stoi(sdat);
+    sdat={}; for(i=20;i<22;i++) sdat.push_back(lnfromfile[i]); month = stoi(sdat);
+    sdat={}; for(i=23;i<32;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } day = stod(sdat);
+    if(year<1900 || month<1 || month>12 || day<1.0 || day>32.0) return(3);
+    MJD = MPCcal2MJD(year,month,day);
+
+    // Right Ascension: hours 33-34, minutes 36-37, seconds 39-44.
+    sdat={}; for(i=32;i<34;i++) sdat.push_back(lnfromfile[i]); hour = stod(sdat);
+    sdat={}; for(i=35;i<37;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } mins = sdat.empty()?0.0:stod(sdat);
+    sdat={}; for(i=38;i<44;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } sec = sdat.empty()?0.0:stod(sdat);
+    RA = 15.0*hour + mins/4.0 + sec/240.0;
+    if(RA<0.0 || RA>360.0) return(4);
+
+    // Declination: sign 45, degrees 46-47, minutes 49-50, seconds 52-56.
+    decsign = lnfromfile[44];
+    if(decsign!='+' && decsign!='-') return(5);
+    sdat={}; for(i=45;i<47;i++) sdat.push_back(lnfromfile[i]); deg = stod(sdat);
+    sdat={}; for(i=48;i<50;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } mins = sdat.empty()?0.0:stod(sdat);
+    sdat={}; for(i=51;i<56;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } sec = sdat.empty()?0.0:stod(sdat);
+    Dec = deg + mins/60.0 + sec/3600.0;
+    if(decsign=='-') Dec = -Dec;
+    if(Dec<-90.0 || Dec>90.0) return(6);
+
+    // Magnitude cols 66-70 (indices 65-69); absent -> 0.0.
+    sdat={}; for(i=65;i<70;i++) { c=lnfromfile[i]; if(c!=' ') sdat.push_back(c); } mag = sdat.empty()?0.0:stod(sdat);
+
+    // Band col 71 (index 70); blank -> empty.
+    c = lnfromfile[70];
+    if(c!=' ') band.push_back(c);
+
+    // Observatory code cols 78-80 (indices 77-79).
+    for(i=77;i<80;i++) obscode.push_back(lnfromfile[i]);
+  } catch(...) {
+    // Any stoi/stod failure: this is not a parseable optical obs line -> skip.
+    return(99);
+  }
+
+  out = mpcdet(MJD, RA, Dec, float(mag), band, obscode, packed);
+  return(0);
+}
+
 // read_obscode_file: March 14, 2023
 // Read a uniformly-formatted observatory code file into a vector
 // of type 'observatory'. This will only work properly in the input
@@ -24009,7 +24179,10 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
   pairdets={};
   indvecs = {};
   ivec1={};
-  
+  pairdets.reserve(detvec.size());
+  indvecs.reserve(detvec.size());
+  pairvec.reserve(detvec.size() * 4);
+
   //for(long i=0;i<long(detvec.size());i++) {
   //    cout  << fixed << setprecision(6) << i << ": " << detvec[i].image << " "  << detvec[i].index << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << "\n";
   //  }
@@ -24164,7 +24337,7 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
   if(verbose>=1) cout << "Test count of pairs: " << pairct << " " << pairvec.size() << "\n";
 
   // Sanity-check indvecs
-  cout << "find_pairs is sanity-checking indvecs\n";
+  if(verbose>=0) cout << "find_pairs is sanity-checking indvecs\n";
   long detnum = indvecs.size();
   long i = 0;
   for(detct=0; detct<detnum; detct++) {
@@ -24176,8 +24349,90 @@ int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <
       }
     }
   }
-  cout << "Sanity-check finished\n";
-  
+  if(verbose>=0) cout << "Sanity-check finished\n";
+
+  return(0);
+}
+
+// find_pairs_omp: March 24, 2026. Parallelizes find_pairs over independent
+// time groups. Images separated by a gap > maxtime cannot produce cross-group
+// pairs (find_pairs only pairs image A with later image B within maxtime), so
+// each group accesses a disjoint range of detvec and can be processed by a
+// separate OMP thread. Results are merged with index offsets after the parallel
+// section.
+int find_pairs_omp(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <vector <long>> &indvecs, vector <longpair> &pairvec, double mintime, double maxtime, double imrad, double maxvel, int verbose)
+{
+  int imnum = img_log.size();
+
+  // Initialize all detvec index fields to a known negative state so that
+  // find_pairs can correctly detect "not yet paired" detections.
+  for(long i = 0; i < long(detvec.size()); i++) detvec[i].index = -i - 1;
+
+  // Partition images into independent groups separated by gaps > maxtime.
+  // Within a group all images are within maxtime of their neighbors, so
+  // cross-group pairings cannot occur.
+  vector<int> grp_start, grp_end;
+  grp_start.push_back(0);
+  for(int i = 1; i < imnum; i++) {
+    if(img_log[i].MJD - img_log[i-1].MJD > maxtime) {
+      grp_end.push_back(i);
+      grp_start.push_back(i);
+    }
+  }
+  grp_end.push_back(imnum);
+  int ngroups = (int)grp_start.size();
+  if(verbose>=0) cout << "find_pairs_omp: " << ngroups << " independent time groups\n";
+
+  // Per-group result buffers
+  vector<vector<hldet>>          grp_pairdets(ngroups);
+  vector<vector<vector<long>>>   grp_indvecs(ngroups);
+  vector<vector<longpair>>       grp_pairvec(ngroups);
+  vector<int>                    grp_status(ngroups, 0);
+
+  // Process groups in parallel. Each group accesses a disjoint set of
+  // detvec entries (guaranteed by time-sorted detvec + gap partitioning).
+  #pragma omp parallel for schedule(dynamic,1)
+  for(int g = 0; g < ngroups; g++) {
+    vector<hlimage> sub_img(img_log.begin() + grp_start[g],
+                            img_log.begin() + grp_end[g]);
+    grp_status[g] = find_pairs(detvec, sub_img,
+                               grp_pairdets[g], grp_indvecs[g], grp_pairvec[g],
+                               mintime, maxtime, imrad, maxvel, /*verbose=*/-1);
+  }
+
+  // Check for errors
+  for(int g = 0; g < ngroups; g++) {
+    if(grp_status[g] != 0) {
+      cerr << "ERROR: find_pairs failed for time group " << g << " with status " << grp_status[g] << "\n";
+      return(grp_status[g]);
+    }
+  }
+
+  // Serial merge: concatenate per-group results, offsetting all indices.
+  pairdets = {};
+  indvecs  = {};
+  pairvec  = {};
+  for(int g = 0; g < ngroups; g++) {
+    long offset = (long)pairdets.size();
+    long gsize  = (long)grp_pairdets[g].size();
+    // Append pairdets, fixing .index to global position
+    for(long k = 0; k < gsize; k++) {
+      grp_pairdets[g][k].index = offset + k;
+      pairdets.push_back(grp_pairdets[g][k]);
+    }
+    // Append indvecs with offset
+    for(auto &ivec : grp_indvecs[g]) {
+      vector<long> shifted;
+      shifted.reserve(ivec.size());
+      for(long idx : ivec) shifted.push_back(idx + offset);
+      indvecs.push_back(move(shifted));
+    }
+    // Append pairvec with offset
+    for(auto &p : grp_pairvec[g]) {
+      pairvec.push_back(longpair(p.i1 + offset, p.i2 + offset));
+    }
+  }
+  if(verbose>=0) cout << "find_pairs_omp: merged " << ngroups << " groups -> " << pairdets.size() << " paired detections, " << pairvec.size() << " pairs\n";
   return(0);
 }
 
@@ -28482,7 +28737,7 @@ int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vec
   if(verbose>=1) cout << "Test count of pairs: " << pairct << " " << pairvec.size() << "\n";
 
   // Sanity-check indvecs
-  cout << "find_pairs is sanity-checking indvecs\n";
+  if(verbose>=0) cout << "find_pairs is sanity-checking indvecs\n";
   long detnum = indvecs.size();
   long i = 0;
   for(detct=0; detct<detnum; detct++) {
@@ -28494,8 +28749,8 @@ int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vec
       }
     }
   }
-  cout << "Sanity-check finished\n";
-  
+  if(verbose>=0) cout << "Sanity-check finished\n";
+
   return(0);
 }
 
@@ -28964,7 +29219,113 @@ int merge_pairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs,
 // The overall operation is the same as the previous code:
 // Given the output from find_pairs, merge pairs into tracklets with
 // more than two points, if possible
-int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose)
+// Helper for merge_pairs2: runs the full linear-fit + time-dup + GCR-outlier rejection.
+// Uses absolute residuals (arcsec), not trail_len-normalized. Sets slopes/intercepts,
+// GCR_out (RMS), and istimedup_out. Returns worsterr (max absolute residual).
+static double gcr_fit_pairs(vector<double> &timevec, vector<double> &xvec, vector<double> &yvec,
+                             vector<long> &detindexvec, int mintrkpts, double maxgcr,
+                             double &slopex, double &slopey, double &interceptx, double &intercepty,
+                             double &GCR_out, int &istimedup_out)
+{
+  int trkptnum = 0;
+  int worstpoint = -1;
+  double worsterr = 0.0l;
+  vector<double> fiterr;
+  long j;
+
+  linfituw01(timevec, xvec, slopex, interceptx);
+  linfituw01(timevec, yvec, slopey, intercepty);
+  fiterr = {};
+  GCR_out = 0.0l;
+  for(j=0; j<long(timevec.size()); j++) {
+    double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+    GCR_out += square_err;
+    fiterr.push_back(sqrt(square_err));
+  }
+  GCR_out = sqrt(GCR_out/double(timevec.size()));
+  // Ditch duplicate times
+  istimedup_out = 1;
+  while(istimedup_out==1 && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
+    istimedup_out = 0;
+    j = 1;
+    while(j<long(timevec.size()) && istimedup_out==0) {
+      if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+        istimedup_out = 1;
+        if(fiterr[j]>=fiterr[j-1]) worstpoint = j;
+        else worstpoint = j-1;
+      }
+      j++;
+    }
+    if(istimedup_out==1) {
+      trkptnum = timevec.size();
+      for(j=worstpoint; j<trkptnum-1; j++) {
+        timevec[j] = timevec[j+1]; xvec[j] = xvec[j+1]; yvec[j] = yvec[j+1]; detindexvec[j] = detindexvec[j+1];
+      }
+      trkptnum--;
+      timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+      if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+        cerr << "ERROR: gcr_fit_pairs size mismatch in time-dup rejection\n";
+        return 1e18;
+      }
+      linfituw01(timevec, xvec, slopex, interceptx);
+      linfituw01(timevec, yvec, slopey, intercepty);
+      fiterr = {};
+      GCR_out = 0.0l;
+      for(j=0; j<long(timevec.size()); j++) {
+        double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+        GCR_out += square_err;
+        fiterr.push_back(sqrt(square_err));
+      }
+      GCR_out = sqrt(GCR_out/double(timevec.size()));
+    }
+  }
+  // Final check for remaining time-dups (loop may have stopped early due to size constraint)
+  istimedup_out = 0;
+  j = 1;
+  while(j<long(timevec.size()) && istimedup_out==0) {
+    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) istimedup_out = 1;
+    j++;
+  }
+  // Find worst error
+  worsterr = 0.0l;
+  for(j=0; j<long(timevec.size()); j++) {
+    if(fiterr[j]>worsterr) { worsterr = fiterr[j]; worstpoint = j; }
+  }
+  // Reject outliers
+  while(worsterr>maxgcr && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
+    trkptnum = timevec.size();
+    for(j=worstpoint; j<trkptnum-1; j++) {
+      timevec[j] = timevec[j+1]; xvec[j] = xvec[j+1]; yvec[j] = yvec[j+1]; detindexvec[j] = detindexvec[j+1];
+    }
+    trkptnum--;
+    timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+      cerr << "ERROR: gcr_fit_pairs size mismatch in outlier rejection\n";
+      return 1e18;
+    }
+    linfituw01(timevec, xvec, slopex, interceptx);
+    linfituw01(timevec, yvec, slopey, intercepty);
+    fiterr = {};
+    GCR_out = 0.0l;
+    for(j=0; j<long(timevec.size()); j++) {
+      double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+      GCR_out += square_err;
+      fiterr.push_back(sqrt(square_err));
+    }
+    GCR_out = sqrt(GCR_out/double(timevec.size()));
+    if(fiterr.size() != timevec.size()) {
+      cerr << "Error: gcr_fit_pairs fiterr/timevec size mismatch\n";
+      return 1e18;
+    }
+    worsterr = 0.0l;
+    for(j=0; j<long(timevec.size()); j++) {
+      if(fiterr[j]>worsterr) { worsterr = fiterr[j]; worstpoint = j; }
+    }
+  }
+  return worsterr;
+}
+
+int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose, const vector<hlimage> &img_log)
 {
   long detnum = pairdets.size();
   long detct=0;
@@ -28985,17 +29346,12 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
   int tracklet_size = 0;
   point3d_index p3di = point3d_index(0.0l,0.0l,0.0l,0);
   vector <point3d_index>   track_mrdi_vec;
-  int trkptnum=0;
-  int istimedup=1;
   vector <double> timevec;
   vector <double> xvec;
   vector <double> yvec;
   vector <long> detindexvec;
   double slopex,slopey,interceptx,intercepty,worsterr;
   slopex = slopey = interceptx = intercepty = worsterr = 0.0l;
-  vector <double> fiterr = {};
-  vector <double> fiterr2 = {};
-  int worstpoint=-1;
   double dtref,dt,dx,dy,angvel;
   dtref = dt = dx = dy = angvel = 0.0l;
   double outra1,outdec1,outra2,outdec2;
@@ -29178,134 +29534,56 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 	  }
 	}
 
-	// Perform fit to projected x coordinate as a function of time
-	linfituw01(timevec, xvec, slopex, interceptx);
- 	// Perform fit to projected y coordinate as a function of time
-	linfituw01(timevec, yvec, slopey, intercepty);
-	// Load vector of residuals
-	fiterr = {};
-	GCR=0.0l;
-	for(j=0; j<long(timevec.size()); j++) {
-	  double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
-	  GCR += square_err;
-	  fiterr.push_back(sqrt(square_err));
-	}
-	GCR = sqrt(GCR/double(timevec.size()));
-	// Ditch duplicate times, if there are any
-	istimedup=1; // Guilty until proven innocent
-	while(istimedup==1 && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
-	  istimedup=0;
-	  j=1;
-	  while(j<long(timevec.size()) && istimedup==0) {
-	    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
-	      istimedup=1; // Point j and j-1 are time-duplicates.
-	      // Mark for rejection whichever one has the largest fitting error
-	      if(fiterr[j]>=fiterr[j-1]) worstpoint = j; 
-	      else worstpoint = j-1;
-	    }
-	    j++;
-	  }
-	  if(istimedup==1) {
-	    // Reject the bad point
-	    trkptnum=timevec.size();
-	    for(j=worstpoint; j<trkptnum-1; j++) {
-	      timevec[j] = timevec[j+1];
-	      xvec[j] = xvec[j+1];
-	      yvec[j] = yvec[j+1];
-	      detindexvec[j] = detindexvec[j+1];
-	    }
-	    trkptnum--;
-	    timevec.resize(trkptnum);
-	    xvec.resize(trkptnum);
-	    yvec.resize(trkptnum);
-	    detindexvec.resize(trkptnum);
-	    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	      cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	      cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	      cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	      return(6);
-	    }
-	    // Re-do linear fit
-	    // Perform fit to projected x coordinate as a function of time
-	    linfituw01(timevec, xvec, slopex, interceptx);
-	    // Perform fit to projected y coordinate as a function of time
-	    linfituw01(timevec, yvec, slopey, intercepty);
-	    // Load vector of residuals
-	    fiterr = {};
-	    GCR=0.0l;
-	    for(j=0; j<long(timevec.size()); j++) {
-	      double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
-	      GCR += square_err;
-	      fiterr.push_back(sqrt(square_err));
-	    }
-	    GCR = sqrt(GCR/double(timevec.size()));
+	int istimedup = 0;
+	// === Option B: cross-observatory parallax correction for GCR fit ===
+	bool is_cross_obs_cand = false;
+	for(j=0; j<long(detindexvec.size()); j++) {
+	  if(strncmp(pairdets[detindexvec[j]].obscode, pairdets[i].obscode, MINSTRINGLEN) != 0) {
+	    is_cross_obs_cand = true;
+	    break;
 	  }
 	}
-	// Recalculate istimedup, now that the loop is finished.
-	istimedup=0;
-	j=1;
-	while(j<long(timevec.size()) && istimedup==0) {
-	  if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
-	    istimedup=1; // Point j and j-1 are time-duplicates.
-	  }
-	  j++;
-	}
-	// Find worst error.  
-	worsterr = 0.0l;
-	for(j=0; j<long(timevec.size()); j++) {
-	  if(fiterr[j]>worsterr) {
-	    worsterr = fiterr[j];
-	    worstpoint = j;
-	  }
-	}
-	// Reject successive points until either there are only three left
-	// or the worst error drops below maxgcr.
-	while(worsterr>maxgcr && timevec.size() > 3 && long(timevec.size()) > mintrkpts) {
-	  // Reject the worst point
-	  trkptnum=timevec.size();
-	  for(j=worstpoint; j<trkptnum-1; j++) {
-	    timevec[j] = timevec[j+1];
-	    xvec[j] = xvec[j+1];
-	    yvec[j] = yvec[j+1];
-	    detindexvec[j] = detindexvec[j+1];
-	  }
-	  trkptnum--;
-	  timevec.resize(trkptnum);
-	  xvec.resize(trkptnum);
-	  yvec.resize(trkptnum);
-	  detindexvec.resize(trkptnum);	  
-	  if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	    cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	    cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	    cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	    return(6);
-	  }
-	  // Perform fit to projected x coordinate as a function of time
-	  linfituw01(timevec, xvec, slopex, interceptx);
-	  // Perform fit to projected y coordinate as a function of time
-	  linfituw01(timevec, yvec, slopey, intercepty);
-	  // Load vector of residuals
-	  fiterr = {};
-	  GCR=0.0l;
-	  for(j=0; j<long(timevec.size()); j++) {
-	    double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
-	    GCR += square_err;
-	    fiterr.push_back(sqrt(square_err));
-	  }
-	  GCR = sqrt(GCR/double(timevec.size()));
-	  // Find worst error.  
-	  worsterr = 0.0l;
-	  if(fiterr.size() != timevec.size()) {
-	    cerr << "Error: fiterr and timevec have different sizes: " << fiterr.size() << "vs. " << timevec.size() << "\n";
-	    return(7);
-	  }
-	  for(j=0; j<long(timevec.size()); j++) {
-	    if(fiterr[j]>worsterr) {
-	      worsterr = fiterr[j];
-	      worstpoint = j;
+	bool gcr_accepted = false;
+	if(is_cross_obs_cand && !img_log.empty()) {
+	  static const double gcr_d_trials[] = {0.05, 0.5, 5.0, 50.0};
+	  double ra0_rad = pairdets[i].RA / DEGPRAD;
+	  double dec0_rad = pairdets[i].Dec / DEGPRAD;
+	  double east_hat[3]  = {-sin(ra0_rad), cos(ra0_rad), 0.0};
+	  double north_hat[3] = {-sin(dec0_rad)*cos(ra0_rad), -sin(dec0_rad)*sin(ra0_rad), cos(dec0_rad)};
+	  long anchor_img = pairdets[i].image;
+	  double obs0x = img_log[anchor_img].X;
+	  double obs0y = img_log[anchor_img].Y;
+	  double obs0z = img_log[anchor_img].Z;
+	  vector<double> timevec_save = timevec, xvec_save = xvec, yvec_save = yvec;
+	  vector<long> detindexvec_save = detindexvec;
+	  for(int ktry=0; ktry<4 && !gcr_accepted; ktry++) {
+	    double d_au = gcr_d_trials[ktry];
+	    double inv_d_km = 1.0 / (d_au * AU_KM);
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	    for(j=0; j<long(detindexvec.size()); j++) {
+	      long img_j = pairdets[detindexvec[j]].image;
+	      double dpx = (obs0x - img_log[img_j].X) * inv_d_km;
+	      double dpy = (obs0y - img_log[img_j].Y) * inv_d_km;
+	      double dpz = (obs0z - img_log[img_j].Z) * inv_d_km;
+	      xvec[j] += (dpx*east_hat[0] + dpy*east_hat[1] + dpz*east_hat[2]) * (DEGPRAD*3600.0);
+	      yvec[j] += (dpx*north_hat[0] + dpy*north_hat[1] + dpz*north_hat[2]) * (DEGPRAD*3600.0);
+	    }
+	    double we = gcr_fit_pairs(timevec, xvec, yvec, detindexvec, mintrkpts, maxgcr,
+	                              slopex, slopey, interceptx, intercepty, GCR, istimedup);
+	    if(we <= maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
+	      worsterr = we;
+	      gcr_accepted = true;
 	    }
 	  }
+	  if(!gcr_accepted) {
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	  }
 	}
+	if(!gcr_accepted) {
+	  worsterr = gcr_fit_pairs(timevec, xvec, yvec, detindexvec, mintrkpts, maxgcr,
+	                           slopex, slopey, interceptx, intercepty, GCR, istimedup);
+	}
+	// === End Option B ===
 	// See if we've rejected the anchor point i
 	istracklet=0;
 	for(j=0; j<long(detindexvec.size()); j++) {
@@ -30162,7 +30440,113 @@ int merge_pairs3(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 //maxgcr times the length of the trail. Hence, if maxgcr=0.5,
 //the default value, a tracklet is allowed to have a GCR up
 //to 0.5 times the trail length.
-int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose)
+// Helper for merge_trailpairs: runs the full linear-fit + time-dup + GCR-outlier rejection
+// on the supplied vectors (modified in-place). Sets slopex/y and interceptx/y via output refs.
+// Returns worsterr; returns 1e18 on internal error (ensuring rejection).
+static double gcr_fit_trail(vector<double> &timevec, vector<double> &xvec, vector<double> &yvec,
+                             vector<long> &detindexvec, const vector<hldet> &pairdets,
+                             int mintrkpts, double maxgcr,
+                             double &slopex, double &slopey, double &interceptx, double &intercepty)
+{
+  int trkptnum = 0;
+  int istimedup = 1;
+  int worstpoint = -1;
+  double worsterr = 0.0l;
+  vector<double> fiterr;
+  long j;
+
+  linfituw01(timevec, xvec, slopex, interceptx);
+  linfituw01(timevec, yvec, slopey, intercepty);
+  fiterr = {};
+  for(j=0; j<long(timevec.size()); j++) {
+    fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
+  }
+  istimedup=1;
+  while(istimedup==1 && long(timevec.size())>=mintrkpts+1) {
+    istimedup=0;
+    j=1;
+    while(j<long(timevec.size()) && istimedup==0) {
+      if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+        istimedup=1;
+        if(fiterr[j]/pairdets[detindexvec[j]].trail_len >= fiterr[j-1]/pairdets[detindexvec[j-1]].trail_len) worstpoint = j;
+        else worstpoint = j-1;
+      }
+      j++;
+    }
+    if(istimedup==1) {
+      trkptnum=timevec.size();
+      for(j=worstpoint; j<trkptnum-1; j++) {
+        timevec[j] = timevec[j+1];
+        xvec[j] = xvec[j+1];
+        yvec[j] = yvec[j+1];
+        detindexvec[j] = detindexvec[j+1];
+      }
+      trkptnum--;
+      timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+      if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+        cerr << "ERROR: gcr_fit_trail size mismatch in time-dup rejection\n";
+        return 1e18;
+      }
+      linfituw01(timevec, xvec, slopex, interceptx);
+      linfituw01(timevec, yvec, slopey, intercepty);
+      fiterr = {};
+      for(j=0; j<long(timevec.size()); j++) {
+        fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
+      }
+    }
+  }
+  worsterr = 0.0l;
+  for(j=0; j<long(timevec.size()); j++) {
+    if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
+      worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
+      worstpoint = j;
+    }
+  }
+  while(worsterr>maxgcr && timevec.size()>3 && long(timevec.size())>=mintrkpts) {
+    trkptnum=timevec.size();
+    for(j=worstpoint; j<trkptnum-1; j++) {
+      timevec[j] = timevec[j+1];
+      xvec[j] = xvec[j+1];
+      yvec[j] = yvec[j+1];
+      detindexvec[j] = detindexvec[j+1];
+    }
+    trkptnum--;
+    timevec.resize(trkptnum); xvec.resize(trkptnum); yvec.resize(trkptnum); detindexvec.resize(trkptnum);
+    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+      cerr << "ERROR: gcr_fit_trail size mismatch in outlier rejection\n";
+      return 1e18;
+    }
+    linfituw01(timevec, xvec, slopex, interceptx);
+    linfituw01(timevec, yvec, slopey, intercepty);
+    fiterr = {};
+    for(j=0; j<long(timevec.size()); j++) {
+      fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
+    }
+    if(fiterr.size() != timevec.size()) {
+      cerr << "Error: gcr_fit_trail fiterr/timevec size mismatch\n";
+      return 1e18;
+    }
+    worsterr = 0.0l;
+    for(j=0; j<long(timevec.size()); j++) {
+      if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
+        worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
+        worstpoint = j;
+      }
+    }
+  }
+  return worsterr;
+}
+
+//merge_trailpairs: February 20, 2024: Given the output from find_pairs,
+//merge pairs into tracklets with more than two points, if possible.
+//This function is very similar to merge_pairs, but its cutoff on the
+//Great Circle Residual for a tracklet with more than two points
+//scales with the trail length, rather than being a fixed number.
+//Specifically, the actual maximum permitted GCR is equal to
+//maxgcr times the length of the trail. Hence, if maxgcr=0.5,
+//the default value, a tracklet is allowed to have a GCR up
+//to 0.5 times the trail length.
+int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose, const vector<hlimage> &img_log)
 {
   long detnum = pairdets.size();
   long detct=0;
@@ -30185,17 +30569,12 @@ int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &ind
   int tracklet_size = 0;
   point3d_index p3di = point3d_index(0.0l,0.0l,0.0l,0);
   vector <point3d_index>   track_mrdi_vec;
-  int trkptnum=0;
-  int istimedup=1;
   vector <double> timevec;
   vector <double> xvec;
   vector <double> yvec;
   vector <long> detindexvec;
   double slopex,slopey,interceptx,intercepty,worsterr;
   slopex = slopey = interceptx = intercepty = worsterr = 0.0l;
-  vector <double> fiterr = {};
-  vector <double> fiterr2 = {};
-  int worstpoint=-1;
   double dtref,dt,dx,dy,angvel;
   dtref = dt = dx = dy = angvel = 0.0l;
   double outra1,outdec1,outra2,outdec2;
@@ -30393,113 +30772,57 @@ int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &ind
 	  }
 	}
 
-	// Perform fit to projected x coordinate as a function of time
-	linfituw01(timevec, xvec, slopex, interceptx);
- 	// Perform fit to projected y coordinate as a function of time
-	linfituw01(timevec, yvec, slopey, intercepty);
-	// Load vector of residuals
-	fiterr = {};
-	for(j=0; j<long(timevec.size()); j++) {
-	  fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
-	}
-	// Ditch duplicate times, if there are any
-	istimedup=1; // Guilty until proven innocent
-	while(istimedup==1 && long(timevec.size())>=mintrkpts+1) {
-	  istimedup=0;
-	  j=1;
-	  while(j<long(timevec.size()) && istimedup==0) {
-	    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
-	      istimedup=1; // Point j and j-1 are time-duplicates.
-	      // Mark for rejection whichever one has the largest fitting error
-	      if(fiterr[j]/pairdets[detindexvec[j]].trail_len >= fiterr[j-1]/pairdets[detindexvec[j-1]].trail_len) worstpoint = j; 
-	      else worstpoint = j-1;
-	    }
-	    j++;
-	  }
-	  if(istimedup==1) {
-	    // Reject the bad point
-	    trkptnum=timevec.size();
-	    for(j=worstpoint; j<trkptnum-1; j++) {
-	      timevec[j] = timevec[j+1];
-	      xvec[j] = xvec[j+1];
-	      yvec[j] = yvec[j+1];
-	      detindexvec[j] = detindexvec[j+1];
-	    }
-	    trkptnum--;
-	    timevec.resize(trkptnum);
-	    xvec.resize(trkptnum);
-	    yvec.resize(trkptnum);
-	    detindexvec.resize(trkptnum);
-	    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	      cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	      cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	      cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	      return(6);
-	    }
-	    // Re-do linear fit
-	    // Perform fit to projected x coordinate as a function of time
-	    linfituw01(timevec, xvec, slopex, interceptx);
-	    // Perform fit to projected y coordinate as a function of time
-	    linfituw01(timevec, yvec, slopey, intercepty);
-	    // Load vector of residuals
-	    fiterr = {};
-	    for(j=0; j<long(timevec.size()); j++) {
-	      fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
-	    }
+	// === Option B: cross-observatory parallax correction for GCR fit ===
+	// Detect whether this tracklet candidate spans multiple observatories.
+	bool is_cross_obs_cand = false;
+	for(j=0; j<long(detindexvec.size()); j++) {
+	  if(strncmp(pairdets[detindexvec[j]].obscode, pairdets[pdct].obscode, MINSTRINGLEN) != 0) {
+	    is_cross_obs_cand = true;
+	    break;
 	  }
 	}
-	// Find worst error.  
-	worsterr = 0.0l;
-	for(j=0; j<long(timevec.size()); j++) {
-	  if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
-	    worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
-	    worstpoint = j;
-	  }
-	}
-	// Reject successive points until either there are only three left
-	// or the worst error drops below maxgcr.
-	while(worsterr>maxgcr && timevec.size()>3 && long(timevec.size())>=mintrkpts) {
-	  // Reject the worst point
-	  trkptnum=timevec.size();
-	  for(j=worstpoint; j<trkptnum-1; j++) {
-	    timevec[j] = timevec[j+1];
-	    xvec[j] = xvec[j+1];
-	    yvec[j] = yvec[j+1];
-	    detindexvec[j] = detindexvec[j+1];
-	  }
-	  trkptnum--;
-	  timevec.resize(trkptnum);
-	  xvec.resize(trkptnum);
-	  yvec.resize(trkptnum);
-	  detindexvec.resize(trkptnum);	  
-	  if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
-	    cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
-	    cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
-	    cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
-	    return(6);
-	  }
-	  // Perform fit to projected x coordinate as a function of time
-	  linfituw01(timevec, xvec, slopex, interceptx);
-	  // Perform fit to projected y coordinate as a function of time
-	  linfituw01(timevec, yvec, slopey, intercepty);
-	  // Load vector of residuals
-	  fiterr = {};
-	  for(j=0; j<long(timevec.size()); j++) {
-	    fiterr.push_back(sqrt(DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j])));
-	  }
-	  // Find worst error.  
-	  worsterr = 0.0l;
-	  if(fiterr.size() != timevec.size()) {
-	    cerr << "Error: fiterr and timevec have different sizes: " << fiterr.size() << "vs. " << timevec.size() << "\n";
-	    return(7);
-	  }
-	  for(j=0; j<long(timevec.size()); j++) {
-	    if(fiterr[j]/pairdets[detindexvec[j]].trail_len > worsterr) {
-	      worsterr = fiterr[j]/pairdets[detindexvec[j]].trail_len;
-	      worstpoint = j;
+	bool gcr_accepted = false;
+	if(is_cross_obs_cand && !img_log.empty()) {
+	  // Try K trial geocentric distances. Apply a parallax correction to x/y
+	  // (offsetting each detection to "as seen from pdct's observatory"), then run
+	  // the GCR fit. Accept on the first passing trial.
+	  static const double gcr_d_trials[] = {0.05, 0.5, 5.0, 50.0};
+	  double ra0_rad = pairdets[pdct].RA / DEGPRAD;
+	  double dec0_rad = pairdets[pdct].Dec / DEGPRAD;
+	  double east_hat[3]  = {-sin(ra0_rad), cos(ra0_rad), 0.0};
+	  double north_hat[3] = {-sin(dec0_rad)*cos(ra0_rad), -sin(dec0_rad)*sin(ra0_rad), cos(dec0_rad)};
+	  long anchor_img = pairdets[pdct].image;
+	  double obs0x = img_log[anchor_img].X;
+	  double obs0y = img_log[anchor_img].Y;
+	  double obs0z = img_log[anchor_img].Z;
+	  vector<double> timevec_save = timevec, xvec_save = xvec, yvec_save = yvec;
+	  vector<long> detindexvec_save = detindexvec;
+	  for(int ktry=0; ktry<4 && !gcr_accepted; ktry++) {
+	    double d_au = gcr_d_trials[ktry];
+	    double inv_d_km = 1.0 / (d_au * AU_KM);
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	    for(j=0; j<long(detindexvec.size()); j++) {
+	      long img_j = pairdets[detindexvec[j]].image;
+	      double dpx = (obs0x - img_log[img_j].X) * inv_d_km;
+	      double dpy = (obs0y - img_log[img_j].Y) * inv_d_km;
+	      double dpz = (obs0z - img_log[img_j].Z) * inv_d_km;
+	      xvec[j] += (dpx*east_hat[0] + dpy*east_hat[1] + dpz*east_hat[2]) * (DEGPRAD*3600.0);
+	      yvec[j] += (dpx*north_hat[0] + dpy*north_hat[1] + dpz*north_hat[2]) * (DEGPRAD*3600.0);
+	    }
+	    double we = gcr_fit_trail(timevec, xvec, yvec, detindexvec, pairdets, mintrkpts, maxgcr, slopex, slopey, interceptx, intercepty);
+	    if(we <= maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
+	      worsterr = we;
+	      gcr_accepted = true;
 	    }
 	  }
+	  if(!gcr_accepted) {
+	    timevec = timevec_save; xvec = xvec_save; yvec = yvec_save; detindexvec = detindexvec_save;
+	  }
 	}
+	if(!gcr_accepted) {
+	  worsterr = gcr_fit_trail(timevec, xvec, yvec, detindexvec, pairdets, mintrkpts, maxgcr, slopex, slopey, interceptx, intercepty);
+	}
+	// === End Option B ===
 	if(worsterr<=maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
 	  // We succeeded in finding a tracklet with no time-duplicates, and
 	  // no outliers beyond maxgcr. Prepare to write it to the pair file.
@@ -31862,7 +32185,7 @@ int make_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   }
   cout << "Sanity-check finished\n";
    
-  status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+  status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
   if(status!=0) {
     cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
     return(status);
@@ -31943,7 +32266,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     }
     cout << "Sanity-check finished\n";
   
-    status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
     if(status!=0) {
       cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -31982,7 +32305,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     }
     cout << "Sanity-check finished\n";
   
-    status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
     if(status!=0) {
       cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -31993,8 +32316,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -32287,28 +32609,15 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
       status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
-      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      // sanity check performed inside find_pairs()
+
+      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32326,28 +32635,15 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
       status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
-      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      // sanity check performed inside find_pairs()
+
+      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32358,8 +32654,7 @@ int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
       // and re-write the indices of the trk2det vector accordingly
     
       // Create a vector of -1s, of the same length as pairdets_temp.
-      vector <long> detloaded;
-      for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+      vector <long> detloaded(pairdets_temp.size(), -1);
       if(detloaded.size() != pairdets_temp.size()) {
 	cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
 	return(5);
@@ -32513,8 +32808,7 @@ int make_tracklets6c(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTr
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -32609,31 +32903,18 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     // pure find_pairs5() algorithm should be selected using config.use_lowmem to 1.
 
     vector <hldet> pairdets_temp;
-    
+
     // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
     // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
     // and the vector pairvec of type longpair, giving all the pairs of detections.
     status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+
     if(status!=0) {
       cerr << "ERROR: find_pairs reports failure status " << status << "\n";
       return(status);
     }
 
-    // Sanity-check indvecs
-    cout << "make_tracklets is sanity-checking indvecs\n";
-    long detnum = indvecs.size();
-    long detct=0;
-    for(detct=0; detct<detnum; detct++) {
-      for(i=0; i<long(indvecs[detct].size()); i++) {
-	if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	  cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	  cerr << "Acceptable range is 0 to " << detnum << "\n";
-	  return(9);
-	}
-      }
-    }
-    cout << "Sanity-check finished\n";
+    // sanity check performed inside find_pairs()
 
     // Calculate the extent of image overlap, to avoid writing out two-point tracklets
     // in areas with large numbers of overlapping images.
@@ -32654,8 +32935,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -32701,29 +32981,16 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
-      status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+      status = find_pairs_omp(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
-      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      // sanity check performed inside find_pairs()
+
+      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32736,33 +33003,20 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // load a temporary version of pairdets, which must be culled afterwards.
 
       vector <hldet> pairdets_temp;
-    
+
       // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
       // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
       // and the vector pairvec of type longpair, giving all the pairs of detections.
-      status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
-  
+      status = find_pairs_omp(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+
       if(status!=0) {
 	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
 	return(status);
       }
 
-      // Sanity-check indvecs
-      cout << "make_tracklets is sanity-checking indvecs\n";
-      long detnum = indvecs.size();
-      long detct=0;
-      for(detct=0; detct<detnum; detct++) {
-	for(i=0; i<long(indvecs[detct].size()); i++) {
-	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
-	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
-	    cerr << "Acceptable range is 0 to " << detnum << "\n";
-	    return(9);
-	  }
-	}
-      }
-      cout << "Sanity-check finished\n";
-  
-      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+      // sanity check performed inside find_pairs()
+
+      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
 
       if(status!=0) {
 	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
@@ -32773,8 +33027,7 @@ int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
       // and re-write the indices of the trk2det vector accordingly
     
       // Create a vector of -1s, of the same length as pairdets_temp.
-      vector <long> detloaded;
-      for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+      vector <long> detloaded(pairdets_temp.size(), -1);
       if(detloaded.size() != pairdets_temp.size()) {
 	cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
 	return(5);
@@ -32896,7 +33149,7 @@ int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, 
   }
   cout << "Sanity-check finished\n";
    
-  status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+  status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
   if(status!=0) {
     cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
     return(status);
@@ -32993,7 +33246,7 @@ int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log,
     }
     cout << "Sanity-check finished\n";
    
-    status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
     if(status!=0) {
       cerr << "ERROR: merge_trailpairs reports failure status " << status << "\n";
       return(status);
@@ -33031,7 +33284,7 @@ int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log,
     }
     cout << "Sanity-check finished\n";
    
-    status = merge_trailpairs(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    status = merge_trailpairs(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose, image_log);
     if(status!=0) {
       cerr << "ERROR: merge_trailpairs reports failure status " << status << "\n";
       return(status);
@@ -33040,8 +33293,7 @@ int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log,
     // and re-write the indices of the trk2det vector accordingly
     
     // Create a vector of -1s, of the same length as pairdets_temp.
-    vector <long> detloaded;
-    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    vector <long> detloaded(pairdets_temp.size(), -1);
     if(detloaded.size() != pairdets_temp.size()) {
       cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
       return(5);
@@ -33320,7 +33572,10 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
   double timediff=0l;
   double E = 0.0l;
   double v_inf = 0.0l;
- 
+  double obstanvel = MAXTANVELCUT;
+  double meanobsdist,trackletarc,trackletangvel;
+  meanobsdist = trackletarc = trackletangvel = 0.0;
+
   // Calculate approximate heliocentric distances from the
   // input quadratic approximation.
   // Note: heliodist is in km, heliovel is in km/day, and helioacc is in km/day^2
@@ -33400,6 +33655,25 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
     targposvec2={};
     deltavec2={};
     status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
+    // Calculate the mean distance from the observer over the two points in the tracklet.
+    // If the projection equations had two solutions (meaning the hypothesis distance was
+    // interior to the Earth), use the larger solutions.
+    meanobsdist = (deltavec1[0] + deltavec2[0])/2.0;
+    if(status1==2 && status2==2 &&  deltavec1[1]>deltavec1[0] && deltavec2[1]>deltavec2[0]) meanobsdist = (deltavec1[1] + deltavec2[1])/2.0;
+    if(minimpactpar > 0.0 && minimpactpar < MAXTANVELCUT && meanobsdist < mingeoobs*AU_KM && status1 > 0 && status2 > 0 && badpoint==0) {
+      // New check added May 13, 2026: Calculate observer-centric tangential velocity,
+      // and reject the point if that is too low. The value of minimpactpar is here
+      // interpreted as a tangential velocity in km/sec, since it is nonzero but too small to
+      // make sense as an impact parameter in km.
+      trackletarc = distradec01(tracklets[pairct].RA1, tracklets[pairct].Dec1, tracklets[pairct].RA2, tracklets[pairct].Dec2)/DEGPRAD; // Tracklet arc in radians
+      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY; // Time difference in seconds
+      trackletangvel = trackletarc/timediff; // radians per second
+      obstanvel = trackletangvel*meanobsdist; // km/sec
+      if(obstanvel<minimpactpar) {
+	// Tangential velocity relative to the observer is too low
+	badpoint=1;
+      }
+    }
     if(status1 > 0 && status2 > 0 && badpoint==0) {
       // Calculate time difference between the observations
       timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
@@ -33742,6 +34016,223 @@ int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <track
       // Heliocentric projection found no physical solution.
       continue;
     }
+  }
+  return(0);
+}
+
+// trk2statevec_fgfuncRR (cache overload): uses pre-computed TrackletProjCache to skip
+// per-hypothesis celestial_to_stateunit and dot-product recomputation (Opt 1),
+// and applies an angular velocity pre-filter to skip implausible tracklets (Opt 2).
+int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, const vector <TrackletProjCache> &cache, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler)
+{
+  allstatevecs={};
+  long imnum = image_log.size();
+  long imct=0;
+  long pairnum = tracklets.size();
+  long pairct=0;
+  int badpoint=0;
+  int status1=0;
+  int status2=0;
+  int num_dist_solutions=0;
+  int solnct=0;
+  double mjdavg=0l;
+  vector <double> heliodistvec;
+  double delta1 = 0.0l;
+  long i1,i2;
+  i1=i2=0;
+  point6dx2 statevec1 = point6dx2(0l,0l,0l,0l,0l,0l,0,0);
+  point6ix2 stateveci = point6ix2(0,0,0,0,0,0,0,0);
+  point3d observerpos1 = point3d(0l,0l,0l);
+  point3d observerpos2 = point3d(0l,0l,0l);
+  point3d targpos1 = point3d(0l,0l,0l);
+  point3d targvel1 = point3d(0l,0l,0l);
+  point3d targpos2 = point3d(0l,0l,0l);
+  vector <point3d> targposvec1;
+  vector <point3d> targposvec2;
+  int glob_warning=0;
+  vector <double> deltavec1;
+  vector <double> deltavec2;
+  vector <double> mjdvec;
+  double absvelocity=0l;
+  double impactpar=0l;
+  double timediff=0l;
+  double E = 0.0l;
+  double v_inf = 0.0l;
+
+  // Load the two reference times into mjdvec
+  mjdvec={};
+  mjdvec.push_back(mjdref-chartimescale/SOLARDAY);
+  mjdvec.push_back(mjdref+chartimescale/SOLARDAY);
+
+  // Calculate approximate heliocentric distances from the
+  // input quadratic approximation.
+  heliodistvec={};
+  if(NotKepler) {
+    for(imct=0;imct<imnum;imct++) {
+      delta1 = image_log[imct].MJD - mjdref;
+      heliodistvec.push_back(heliodist + heliovel*delta1 + 0.5*helioacc*delta1*delta1);
+      if(heliodistvec[imct]<=0.0l) {
+	badpoint=1;
+	return(1);
+      }
+    }
+  } else {
+    double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist);
+    double physacc = helioacc/DSQUARE(SOLARDAY);
+    double vesc = 2.0*GMSUN_KM3_SEC2/heliodist;
+    double tanvel = heliodist*(physacc+localg);
+    if(tanvel<0.0l) {
+      cerr << fixed << setprecision(6) << "ERROR: hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << " is not possible for any trajectory\n";
+      return(1);
+    }
+    if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+      cerr << fixed << setprecision(6) << "ERROR: hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << " is not possible for a bound orbit\n";
+      return(1);
+    }
+    tanvel = sqrt(tanvel);
+    point3d startpos = point3d(heliodist,0l,0l);
+    point3d startvel = point3d(heliovel/SOLARDAY,tanvel,0l);
+    point3d endpos = point3d(0l,0l,0l);
+    point3d endvel = point3d(0l,0l,0l);
+    for(imct=0;imct<imnum;imct++) {
+      status1 = Kepler_fg_func_int(GMSUN_KM3_SEC2, mjdref, startpos, startvel, image_log[imct].MJD, endpos, endvel);
+      if(status1!=0) {
+	cerr << "ERROR: Keplerian integration failed for r(t) hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << ", at MJD = " << image_log[imct].MJD << "\n";
+	return(status1);
+      }
+      heliodistvec.push_back(vecabs3d(endpos));
+    }
+  }
+  if(badpoint==0 && long(heliodistvec.size())!=imnum) {
+    cerr << "ERROR: number of heliocentric distance values does\n";
+    cerr << "not match the number of input images!\n";
+    return(2);
+  }
+
+  // Angular velocity pre-filter threshold (Opt 2): max plausible rate at this heliodist.
+  // omega_circ = sqrt(GM_sun / r_h^3) rad/s, converted to rad/day, with 5x safety factor.
+  double omega_max_rad_per_day = 5.0 * sqrt(GMSUN_KM3_SEC2 / (heliodist*heliodist*heliodist)) * SOLARDAY;
+
+  {
+    int ntp = omp_in_parallel() ? 1 : omp_get_max_threads();
+    vector<vector<point6ix2>> thr_svecs(ntp);
+    #pragma omp parallel for schedule(dynamic,64) if(!omp_in_parallel()) \
+      private(badpoint, status1, status2, num_dist_solutions, solnct, mjdavg, \
+              i1, i2, targposvec1, targposvec2, \
+              glob_warning, deltavec1, deltavec2, absvelocity, impactpar, timediff, E, v_inf)
+    for(pairct=0; pairct<pairnum; pairct++) {
+      int tid = omp_in_parallel() ? 0 : omp_get_thread_num();
+      badpoint=0;
+      point6dx2 statevec1(0l,0l,0l,0l,0l,0l,0,0);
+      point6ix2 stateveci(0,0,0,0,0,0,0,0);
+      point3d observerpos1(0l,0l,0l);
+      point3d observerpos2(0l,0l,0l);
+      point3d targpos1(0l,0l,0l);
+      point3d targpos2(0l,0l,0l);
+      point3d targvel1(0l,0l,0l);
+
+      // Opt 2: skip tracklets whose observed rate is physically impossible at this heliodist
+      if(cache[pairct].ang_rate_rad_per_day > omega_max_rad_per_day) continue;
+
+      i1=tracklets[pairct].Img1;
+      i2=tracklets[pairct].Img2;
+      observerpos1 = cache[pairct].obsbary1;
+      targposvec1 = {};
+      deltavec1 = {};
+      status1 = helioproj02_fast(cache[pairct].unitbary1, observerpos1,
+                                  cache[pairct].b1, cache[pairct].barydist2_1,
+                                  heliodistvec[i1], deltavec1, targposvec1);
+      observerpos2 = cache[pairct].obsbary2;
+      targposvec2 = {};
+      deltavec2 = {};
+      status2 = helioproj02_fast(cache[pairct].unitbary2, observerpos2,
+                                  cache[pairct].b2, cache[pairct].barydist2_2,
+                                  heliodistvec[i2], deltavec2, targposvec2);
+      if(status1 > 0 && status2 > 0 && badpoint==0) {
+        // Calculate time difference between the observations
+        timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
+        // Did helioproj find two solutions in both cases, or only one?
+        num_dist_solutions = status1;
+        if(num_dist_solutions > status2) num_dist_solutions = status2;
+        // Loop over solutions (num_dist_solutions can only be 1 or 2).
+        for(solnct=0; solnct<num_dist_solutions; solnct++) {
+	  // Calculate the object's v_inf relative to the sun.
+	  targpos1 = targposvec1[solnct];
+	  targpos2 = targposvec2[solnct];
+
+	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	  targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	  targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	  targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	  E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
+	  if(E>0.0l) v_inf = sqrt(2.0l*E);
+	  else if(!isnormal(E)) v_inf=0.0l;
+	  else v_inf = -sqrt(-2.0l*E);
+	  if(v_inf>max_v_inf) continue;
+
+	  glob_warning=0;
+	  if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+	    targpos1.x -= observerpos1.x;
+	    targpos1.y -= observerpos1.y;
+	    targpos1.z -= observerpos1.z;
+
+	    targpos2.x -= observerpos2.x;
+	    targpos2.y -= observerpos2.y;
+	    targpos2.z -= observerpos2.z;
+
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    absvelocity = vecabs3d(targvel1);
+	    impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
+	    targpos1.x -= impactpar*targvel1.x/absvelocity;
+	    targpos1.y -= impactpar*targvel1.y/absvelocity;
+	    targpos1.z -= impactpar*targvel1.z/absvelocity;
+	    impactpar  = vecabs3d(targpos1);
+	    if(impactpar<=minimpactpar) {
+	      glob_warning=1;
+	    }
+	  }
+	  if(!glob_warning) {
+	    targpos1 = targposvec1[solnct];
+	    targpos2 = targposvec2[solnct];
+
+	    targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	    targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	    targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	    targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	    targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	    targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	    // Integrate orbit to the reference times.
+	    mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
+	    vector <point3d> targposvec;
+	    vector <point3d> targvelvec;
+	    status1 = Kepler_fg_func_vec(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdvec,targposvec,targvelvec);
+	    if(status1 == 0 && badpoint==0) {
+	      statevec1 = point6dx2(targposvec[0].x,targposvec[0].y,targposvec[0].z,targposvec[1].x,targposvec[1].y,targposvec[1].z,pairct,0);
+	      stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
+	      thr_svecs[tid].push_back(stateveci);
+	    } else {
+	      continue;
+	    }
+	  }
+        }
+      } else {
+        badpoint=1;
+        continue;
+      }
+    }
+    for(int t=0; t<ntp; t++)
+      allstatevecs.insert(allstatevecs.end(), thr_svecs[t].begin(), thr_svecs[t].end());
   }
   return(0);
 }
@@ -35521,12 +36012,7 @@ int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
-      kdvec={};
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       kdclust={};
@@ -35761,12 +36247,7 @@ int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <h
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
-      kdvec={};
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       kdclust={};
@@ -35994,12 +36475,7 @@ int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet
       geobinct++;
       continue; // No clusters possible, skip to the next step.
     } else {      
-      kdvec={};
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       kdclust={};
@@ -36324,11 +36800,7 @@ int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       cout << "Created a KD tree with " << kdvec.size() << " branches\n";
       double q2=0.0;
       for(long q=0;q<=10000000000;q++) q2=sqrt(double(q));
@@ -36586,11 +37058,7 @@ int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -36869,11 +37337,7 @@ int form_clusters_kd4(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -37137,8 +37601,39 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
   kdnum=kdct=clustptct=0;
   vector <long> linkdet_temp;
 
+  // Build CSR-style offset index into trk2det (sorted by i1) so each
+  // tracklet->detection lookup is O(1) instead of a binary search.
+  long trk2det_sz = long(trk2det.size());
+  long trk2det_maxid = (trk2det_sz > 0) ? trk2det.back().i1 : -1;
+  vector<long> trk2det_start(trk2det_maxid + 2, trk2det_sz);
+  if(trk2det_sz > 0) {
+    long cur = -1;
+    for(long ix = 0; ix < trk2det_sz; ix++) {
+      long t = trk2det[ix].i1;
+      if(t != cur) {
+        for(long g = cur+1; g <= t; g++) trk2det_start[g] = ix;
+        cur = t;
+      }
+    }
+    for(long g = cur+1; g <= trk2det_maxid+1; g++) trk2det_start[g] = trk2det_sz;
+  }
+
+  // Pre-compute geocentric distance (AU) for every state vector once to avoid
+  // repeating conv_6i_to_6d + sqrt inside each geocentric bin iteration.
+  const long N_sv = long(allstatevecs.size());
+  vector<double> sv_geodist(N_sv);
+  {
+    const double erx = Earthrefpos.x, ery = Earthrefpos.y, erz = Earthrefpos.z;
+    for(long ii = 0; ii < N_sv; ii++) {
+      double dx = allstatevecs[ii].x * INTEGERIZING_SCALEFAC - erx;
+      double dy = allstatevecs[ii].y * INTEGERIZING_SCALEFAC - ery;
+      double dz = allstatevecs[ii].z * INTEGERIZING_SCALEFAC - erz;
+      sv_geodist[ii] = sqrt(dx*dx + dy*dy + dz*dz) / AU_KM;
+    }
+  }
+
   // Loop over geocentric bins, selecting the subset of state-vectors
-  // in each bin, and running the k-d range query only on those, 
+  // in each bin, and running the k-d range query only on those,
   // with clustering radius adjusted accordingly.
 
   // Sanity check the logarithmic geocentric distance framework to avoid a
@@ -37155,21 +37650,15 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
   while(georadcen<=maxgeodist && georadct<=georadnum) {
     georadct++;
     georadcen = mingeodist*intpowD(geologstep,georadct-1);
-    cout  << fixed << setprecision(2) << "Geocentric distance step " << georadct << ", bin-center distance is " << georadcen << " AU\n";
+    if(verbose>=1) cout  << fixed << setprecision(2) << "Geocentric distance step " << georadct << ", bin-center distance is " << georadcen << " AU\n";
     georadmin = georadcen/geologstep;
     georadmax = georadcen*geologstep;
-    // Load new array of state vectors, limited to those in the current geocentric bin
+    // Select state vectors in this geocentric bin using precomputed distances.
     vector <point6ix2> binstatevecs;
-    for(i=0; i<long(allstatevecs.size()); i++) {
-      // Reverse integerization of the state vector.
-      // This is only possible to a crude approximation, of course.
-      statevec1 = conv_6i_to_6d(allstatevecs[i],INTEGERIZING_SCALEFAC);
-      // Calculate geocentric distance in AU
-      geodist = sqrt(DSQUARE(statevec1.x-Earthrefpos.x) + DSQUARE(statevec1.y-Earthrefpos.y) + DSQUARE(statevec1.z-Earthrefpos.z))/AU_KM;
-      if(geodist >= georadmin && geodist <= georadmax) {
-	// This state vector is in the geocentric radius bin we are currently considering.
-	// Add it to binstatevecs.
-	binstatevecs.push_back(allstatevecs[i]);
+    binstatevecs.reserve(N_sv / 4);
+    for(long ii=0; ii<N_sv; ii++) {
+      if(sv_geodist[ii] >= georadmin && sv_geodist[ii] <= georadmax) {
+	binstatevecs.push_back(allstatevecs[ii]);
       }
     }
     if(verbose>=1) cout  << fixed << setprecision(2) << "Found " << binstatevecs.size() << " state vectors in geocentric bin from " << georadmin << " to " << georadmax << " AU\n";
@@ -37177,11 +37666,7 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdtree;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdtree.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdtree);
+      kdtree_6i01_fast(binstatevecs, kdtree);
       kdnum = kdtree.size();
       if(verbose>=1) cout << "Created a KD tree with " << kdnum << " branches\n";
 
@@ -37199,10 +37684,12 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
 	if(verbose>=1) cout << "minimum fixed clustrad = " << clustrad << "\n";
       }
       // Loop over all points in the k-d tree.
+      vector <long> clustindvec;
+      vector <long> clustindvec2;
       for(kdct=0; kdct<kdnum; kdct++) {
 	// Range-query current point.
 	querypoint = kdtree[kdct].point;
-	queryout = {};
+	queryout.clear();
 	kdrange_6i01(kdtree, querypoint, clustrad/INTEGERIZING_SCALEFAC, queryout);
 	if(long(queryout.size()) > kdnum) {
 	  cerr << "ERROR: kdrange query appears to have returned more points (" << queryout.size() << ")\n";
@@ -37212,33 +37699,38 @@ int highgrade_kdpairs(const vector <point6ix2> &allstatevecs, const vector <hlde
 	if(long(queryout.size()) >= npt) {
 	  // This point is the core of a cluster. Output all the detection indices include in it.
 	  if(verbose>=1) cout << "Point " << kdct << ": cluster core with " << queryout.size() << " neighbors.\n";
-	  // Loop on points in cluster.
-	  vector <long> clustindvec;
+	  // Expand cluster points to detection indices via CSR index (O(1) per tracklet).
+	  clustindvec.clear();
+	  clustindvec.reserve(queryout.size() * 2);
 	  for(clustptct=0; clustptct<long(queryout.size()); clustptct++) {
-	    pairct=kdtree[queryout[clustptct]].point.i1;
-	    if(DEBUG >= 2) cout << "Looking up tracklet " << pairct << " out of " << tracklets.size() << "\n";
-	    vector <long> pointjunk;
-	    pointjunk = tracklet_lookup(trk2det, pairct);
-	    if(DEBUG >= 2) cout << "Found " << pointjunk.size() << " detections for tracklet " << pairct << "\n";
-	    if(pointjunk.size()<=0) {
-	      cerr << "ERROR: no detections found for tracklet " << pairct << "\n";
+	    long trknum = kdtree[queryout[clustptct]].point.i1;
+	    if(trknum < 0 || trknum >= long(trk2det_start.size())-1) {
+	      cerr << "ERROR: tracklet number " << trknum << " out of range\n";
 	      return(4);
 	    }
-	    for(j=0; j<long(pointjunk.size()); j++) {
-	      clustindvec.push_back(pointjunk[j]);
+	    long lo = trk2det_start[trknum];
+	    long hi = trk2det_start[trknum + 1];
+	    if(lo == hi) {
+	      cerr << "ERROR: no detections found for tracklet " << trknum << "\n";
+	      return(4);
 	    }
-	    // Close loop over tracklets in the cluster
+	    for(long ix=lo; ix<hi; ix++) {
+	      clustindvec.push_back(trk2det[ix].i2);
+	    }
 	  }
 	  if(clustindvec.size()>0) {
 	    // De-duplicate clustindvec
 	    sort(clustindvec.begin(),clustindvec.end());
-	    vector <long> clustindvec2;
+	    clustindvec2.clear();
 	    clustindvec2.push_back(clustindvec[0]);
 	    for(j=1;j<long(clustindvec.size());j++) {
 	      if(clustindvec[j] != clustindvec2[clustindvec2.size()-1]) clustindvec2.push_back(clustindvec[j]);
 	    }
-	    long obsnum = clustindvec2.size();
-	    if(obsnum>=minobsnum) {
+	    // No minobsnum check here: heliolinc re-applies it on its own clusters.
+	    // Checking it per-core-neighborhood would drop detections from objects
+	    // whose full DBSCAN cluster passes minobsnum but no individual core's
+	    // neighborhood does (e.g. chained sparse clusters).
+	    {
 	      vector <double> mjdvec;
 	      for(j=0; j<long(clustindvec2.size()); j++) mjdvec.push_back(detvec[clustindvec2[j]].MJD);
 	      sort(mjdvec.begin(),mjdvec.end());
@@ -37374,11 +37866,7 @@ int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vecto
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -37714,11 +38202,7 @@ int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -38055,11 +38539,7 @@ int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector
       continue; // No clusters possible, skip to the next step.
     } else {      
       vector <KD_point6ix2> kdvec;
-      kdroot = splitpoint = 0;
-      splitpoint=medind_6ix2(binstatevecs,1);
-      kdpoint = KD_point6ix2(binstatevecs[splitpoint],-1,-1,1,-1);
-      kdvec.push_back(kdpoint);
-      kdtree_6i01(binstatevecs,1,splitpoint,kdroot,kdvec);
+      kdtree_6i01_fast(binstatevecs, kdvec);
       if(verbose>=1) cout << "Created a KD tree with " << kdvec.size() << " branches\n";
 
       vector <KD6i_clust> kdclust;
@@ -40084,7 +40564,7 @@ int heliolinc_alg_omp3(const vector <hlimage> &image_log, const vector <hldet> &
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40248,7 +40728,7 @@ int heliolinc_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40416,7 +40896,7 @@ int heliolinc_alg_ompkd(const vector <hlimage> &image_log, const vector <hldet> 
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40586,7 +41066,7 @@ int heliolinc_alg_ompkd3(const vector <hlimage> &image_log, const vector <hldet>
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -40787,6 +41267,136 @@ int link_dedup(const vector <hlclust> &inclust, const vector  <longpair> &inclus
       }
     }
   }
+  return(0);
+}
+
+// link_dedup_funnel: 2026 — OpenMP-parallel tournament version of link_dedup.
+// Exact-duplicate deduplication (keep the highest-metric representative of each
+// identical detection-set) is associative and commutative, so the global result
+// equals a tree reduction: partition the input clusters into nw contiguous chunks,
+// deduplicate each chunk in parallel (leaf stage), then pairwise merge-and-dedup
+// the chunk results up a binary funnel until a single set remains. Output is
+// identical to link_dedup() (clusters renumbered 0..N, inclust2det sorted by i1).
+// nw<=1 (or a trivially small input) falls back to the serial link_dedup().
+int link_dedup_funnel(const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, vector <hlclust> &outclust, vector  <longpair> &outclust2det, int nw)
+{
+  long clusternum = long(inclust.size());
+  outclust={};
+  outclust2det={};
+  if(clusternum<=0) return(0);
+
+  int nchunks = (nw>1) ? nw : 1;
+  // Fall back to plain serial dedup for a single worker or a small input.
+  if(nchunks<=1 || clusternum < 2L*nchunks) {
+    return link_dedup(inclust, inclust2det, outclust, outclust2det);
+  }
+  if(nw>0) omp_set_num_threads(nw);
+
+  // Contiguous cluster-number boundaries for each leaf chunk.
+  vector <long> chunk_lo(nchunks), chunk_hi(nchunks);
+  {
+    long base = clusternum/nchunks;
+    long rem  = clusternum%nchunks;
+    long start=0;
+    for(int c=0;c<nchunks;c++) {
+      long len = base + ((c<rem)?1:0);
+      chunk_lo[c]=start;
+      chunk_hi[c]=start+len;
+      start+=len;
+    }
+  }
+  // inclust2det is sorted ascending by i1 (cluster number); sweep once to find
+  // the row range [row_start,row_end) belonging to each contiguous chunk.
+  long c2dnum = long(inclust2det.size());
+  vector <long> row_start(nchunks), row_end(nchunks);
+  {
+    long r=0;
+    for(int c=0;c<nchunks;c++) {
+      while(r<c2dnum && inclust2det[r].i1 < chunk_lo[c]) r++;
+      row_start[c]=r;
+      while(r<c2dnum && inclust2det[r].i1 < chunk_hi[c]) r++;
+      row_end[c]=r;
+    }
+  }
+
+  // --- Leaf stage: deduplicate each chunk in parallel ---
+  vector <vector <hlclust>> cur_clust(nchunks);
+  vector <vector <longpair>> cur_c2d(nchunks);
+  vector <int> leaf_status(nchunks,0);
+  #pragma omp parallel for schedule(dynamic)
+  for(int c=0;c<nchunks;c++) {
+    long off = chunk_lo[c];
+    vector <hlclust> subclust;
+    vector <longpair> subc2d;
+    subclust.reserve(chunk_hi[c]-chunk_lo[c]);
+    for(long k=chunk_lo[c]; k<chunk_hi[c]; k++) {
+      hlclust oc = inclust[k];
+      oc.clusternum = k - off; // local 0-based numbering, as link_dedup requires
+      subclust.push_back(oc);
+    }
+    subc2d.reserve(row_end[c]-row_start[c]);
+    for(long r=row_start[c]; r<row_end[c]; r++) {
+      subc2d.push_back(longpair(inclust2det[r].i1 - off, inclust2det[r].i2));
+    }
+    vector <hlclust> dclust;
+    vector <longpair> dc2d;
+    leaf_status[c] = link_dedup(subclust, subc2d, dclust, dc2d);
+    cur_clust[c] = std::move(dclust);
+    cur_c2d[c]   = std::move(dc2d);
+  }
+  for(int c=0;c<nchunks;c++) {
+    if(leaf_status[c]!=0) {
+      cerr << "ERROR: link_dedup_funnel leaf chunk " << c << " returned status " << leaf_status[c] << "\n";
+      return(leaf_status[c]);
+    }
+  }
+
+  // --- Funnel stage: pairwise merge-and-dedup up a binary tree ---
+  while(long(cur_clust.size())>1) {
+    int m = int(cur_clust.size());
+    int half = (m+1)/2;
+    vector <vector <hlclust>> nxt_clust(half);
+    vector <vector <longpair>> nxt_c2d(half);
+    vector <int> merge_status(half,0);
+    #pragma omp parallel for schedule(dynamic)
+    for(int p=0;p<half;p++) {
+      int a=2*p, b=2*p+1;
+      if(b>=m) {
+        // Odd leftover: carry forward unchanged.
+        nxt_clust[p]=std::move(cur_clust[a]);
+        nxt_c2d[p]=std::move(cur_c2d[a]);
+        continue;
+      }
+      // Concatenate chunk b after chunk a with contiguous renumbering.
+      vector <hlclust> comb = std::move(cur_clust[a]);
+      vector <longpair> combc2d = std::move(cur_c2d[a]);
+      long off = long(comb.size());
+      for(long k=0;k<long(cur_clust[b].size());k++) {
+        hlclust oc = cur_clust[b][k];
+        oc.clusternum = off + k;
+        comb.push_back(oc);
+      }
+      for(long r=0;r<long(cur_c2d[b].size());r++) {
+        combc2d.push_back(longpair(cur_c2d[b][r].i1 + off, cur_c2d[b][r].i2));
+      }
+      vector <hlclust> dclust;
+      vector <longpair> dc2d;
+      merge_status[p] = link_dedup(comb, combc2d, dclust, dc2d);
+      nxt_clust[p]=std::move(dclust);
+      nxt_c2d[p]=std::move(dc2d);
+    }
+    for(int p=0;p<half;p++) {
+      if(merge_status[p]!=0) {
+        cerr << "ERROR: link_dedup_funnel merge node " << p << " returned status " << merge_status[p] << "\n";
+        return(merge_status[p]);
+      }
+    }
+    cur_clust = std::move(nxt_clust);
+    cur_c2d   = std::move(nxt_c2d);
+  }
+
+  outclust    = std::move(cur_clust[0]);
+  outclust2det= std::move(cur_c2d[0]);
   return(0);
 }
 
@@ -41231,7 +41841,7 @@ int heliolinc_alg_ompkd4(const vector <hlimage> &image_log, const vector <hldet>
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -42006,7 +42616,7 @@ int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &d
       clust2det_mat[threadct]={};
       acct = threadct + cyclect*nt;
       if(acct<accelnum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
       }
     }
     #pragma omp parallel
@@ -42945,7 +43555,7 @@ int heliovane_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
       clust2det_mat[threadct]={};
       lmct = threadct + cyclect*nt;
       if(lmct<lambdanum) {
-	cout << "Thread number " << threadct << " will check hypothesis " << lmct << ": " << lambdahyp[lmct].HelioRad << " deg, " << lambdahyp[lmct].R_dot << " deg/day " << lambdahyp[lmct].R_dubdot << " deg/day^2\n";
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << lmct << ": " << lambdahyp[lmct].HelioRad << " deg, " << lambdahyp[lmct].R_dot << " deg/day " << lambdahyp[lmct].R_dubdot << " deg/day^2\n";
       }
     }
     #pragma omp parallel
@@ -46594,6 +47204,1002 @@ int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &d
       // Close if-statement checking if this is a good, non-duplicated cluster
     }
     // Close loop on all clusters passing the initial cuts
+  }
+  return(0);
+}
+
+// cluster_planarity_oop: 2026 — out-of-plane RMS of a cluster's detections under
+// its heliocentric (or heliovane) hypothesis. Pure-computation, thread-safe
+// extract of link_planarity()'s geometry, used as a fast pre-cull before orbit
+// fitting in link_purify_chisq_omp (-max_oop). Returns 0 on success and sets
+// normout1 (km, scaled to 1 AU); for the heliolinc dual-projection case it also
+// sets normout2 and bothcases=1. Returns 8 if a detection references an image
+// index out of range (caller treats as fatal), or 2 if the cluster cannot be
+// projected/integrated (caller rejects the cluster).
+static int cluster_planarity_oop(const hlclust &onecluster, const vector <hldet> &clusterdets,
+                                 const vector <hlimage> &image_log, const LinkPurifyConfig &config,
+                                 double &normout1, double &normout2, int &bothcases)
+{
+  long imnum = long(image_log.size());
+  long imct = 0;
+  int ptnum = int(clusterdets.size());
+  int ptct = 0;
+  int status = 0, status1 = 0;
+  int kepfail = 0;
+  double heliodist = 0.0l, heliovel = 0.0l, helioacc = 0.0l;
+  double lambda0 = 0.0l, lambda_dot = 0.0l, lambda_ddot = 0.0l;
+  double delta1 = 0.0l;
+  double min_proj_sine = 0.0l;
+  point3d observernow = point3d(0.0L,0.0L,0.0L);
+  point3d unitbary = point3d(0.0L,0.0L,0.0L);
+  point3d polepos = point3d(0.0L,0.0L,0.0L);
+  point3d startpos = point3d(0.0l,0.0l,0.0l);
+  point3d startvel = point3d(0.0l,0.0l,0.0l);
+  point3d endpos = point3d(0.0l,0.0l,0.0l);
+  point3d endvel = point3d(0.0l,0.0l,0.0l);
+  vector <double> heliodistvec, lambdavec, planeout1, planeout2, deltavec;
+  vector <point3d> targposvec, heliopos1, heliopos2;
+  normout1 = LARGERR2; normout2 = LARGERR2; bothcases = 0;
+
+    // PLANARITY CHECK
+    heliopos1 = {};
+    heliopos2 = {};
+    heliodistvec={};
+    // Get the heliocentric positions, by hypothesis, at each point
+    if(config.use_heliovane!=1) { // NOT using heliovane
+      // Use the heliolinc output parameterization: AU, km/sec, and m/sec^2
+      heliodist = onecluster.heliohyp0;
+      heliovel = onecluster.heliohyp1;
+      helioacc = onecluster.heliohyp2;
+      if(config.useorbMJD==1 && onecluster.orbit_MJD>0.0) {
+	// A previous execution of link_purify or link_planarity has fit
+	// an orbit and supplied us with a value for MJD at the epoch.
+	// Use this as the reference MJD. (PROBABLY A BAD IDEA)
+	// Also use the Taylor Series rather than Matt Holman's Keplerian r(t)
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Calculate approximate heliocentric distance using the Taylor Series approximation.
+	  delta1 = (clusterdets[ptct].MJD - onecluster.orbit_MJD)*SOLARDAY;
+	  heliodistvec.push_back(heliodist*AU_KM + heliovel*delta1 + 0.5*helioacc*delta1*delta1/1000.0l);
+	}
+      } else if(config.useorbMJD==-1) {
+	// Use the old reference MJD from heliolinc, and the
+	// Taylor Series rather than Matt Holman's Keplerian r(t)
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Calculate approximate heliocentric distance using the Taylor Series approximation.
+	  delta1 = (clusterdets[ptct].MJD - onecluster.reference_MJD)*SOLARDAY;
+	  heliodistvec.push_back(heliodist*AU_KM + heliovel*delta1 + 0.5*helioacc*delta1*delta1/1000.0l);
+	}
+      } else if(config.useorbMJD==2 && onecluster.orbit_MJD>0.0) {
+	// A previous execution of link_purify or link_planarity has fit
+	// an orbit and supplied us with a value for MJD at the epoch.
+	// Use this as the reference MJD. (PROBABLY A BAD IDEA)
+	// Also use Matt Holman's Keplerian r(t), rather than the Taylor Series
+	// SOLVE FOR THE SQUARE OF THE TANGENTIAL VELOCITY
+	double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist*AU_KM); // Units are km/sec^2
+	double physacc = helioacc/1000.0l; // Units are km/sec^2
+	double vesc = 2.0*GMSUN_KM3_SEC2/heliodist/AU_KM; // this is the square of the escape velocity in km/sec
+	double tanvel = heliodist*AU_KM*(physacc+localg); // this is the square of the tangential velocity in km/sec
+
+	// CHECK FOR UNPHYSICAL AND UNBOUND CASES
+	if(tanvel<0.0l) {
+	  // return(1);
+	  return(2); // reject: projection/kepler failure
+	}
+	if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+	  // The fact that the orbit is unbound is not a problem, because this function uses
+	  // universal variables and can handle unbound orbits.
+	}
+	// If we get here, a sensible solution (bound or unbound) exists. Solve for the true tangential velocity
+	tanvel = sqrt(tanvel);
+	// Construct state vectors producing the required orbit (in the x-y plane, for simplicity).
+	startpos = point3d(heliodist*AU_KM,0l,0l);
+	startvel = point3d(heliovel,tanvel,0l);
+	endpos = point3d(0l,0l,0l);
+	endvel = point3d(0l,0l,0l);
+	kepfail=0;
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Integrate the orbit to find the heliocentric distance as a function of time.
+	  status1 = Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, clusterdets[ptct].MJD, endpos, endvel, config.verbose);
+	  if(status1!=0) {
+	    kepfail=1;
+	    // return(status1);
+	  }
+	  heliodistvec.push_back(vecabs3d(endpos));
+	}
+	if(kepfail!=0) {
+	  // Skip to the next cluster
+	  return(2); // reject: projection/kepler failure
+	}
+      } else {
+	// Default case: use the old reference MJD, and Matt Holman's new Keplerian r(t)
+	// SOLVE FOR THE SQUARE OF THE TANGENTIAL VELOCITY
+	double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist*AU_KM); // Units are km/sec^2
+	double physacc = helioacc/1000.0l; // Units are km/sec^2
+	double vesc = 2.0*GMSUN_KM3_SEC2/heliodist/AU_KM; // this is the square of the escape velocity in km/sec
+	double tanvel = heliodist*AU_KM*(physacc+localg); // this is the square of the tangential velocity in km/sec
+	// CHECK FOR UNPHYSICAL AND UNBOUND CASES
+	if(tanvel<0.0l) {
+	  //return(1);
+	  return(2); // reject: projection/kepler failure
+	}
+	if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+	  // The fact that the orbit is unbound is not a problem, because this function uses
+	  // universal variables and can handle unbound orbits.
+	}
+	// If we get here, a sensible solution (bound or unbound) exists. Solve for the true tangential velocity
+	tanvel = sqrt(tanvel);
+	// Construct state vectors producing the required orbit (in the x-y plane, for simplicity).
+	startpos = point3d(heliodist*AU_KM,0l,0l);
+	startvel = point3d(heliovel,tanvel,0l);
+	endpos = point3d(0l,0l,0l);
+	endvel = point3d(0l,0l,0l);
+	kepfail=0;
+	for(ptct=0; ptct<ptnum; ptct++) {
+	  // Integrate the orbit to find the heliocentric distance as a function of time.
+	  status1 = Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, clusterdets[ptct].MJD, endpos, endvel, config.verbose);
+	  if(status1==0) heliodistvec.push_back(vecabs3d(endpos));
+	  else {
+	    //return(status1);
+	    kepfail=1;
+	  }
+	}
+	if(kepfail!=0) {
+	  return(2); // reject: projection/kepler failure
+	}
+      }
+	
+      // Now infer the 3-D positions, and heliocentric polar coordinates, of each point
+      // based on these hypothetical distances.
+      heliopos1 = {};
+      heliopos2 = {};
+      bothcases=0;
+      for(ptct=0; ptct<ptnum; ptct++) {
+	// Figure out where the observer is.
+	imct = clusterdets[ptct].image;
+	if(imct>=imnum) {
+	  return(8);
+	}
+	observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
+	// Convert the observational RA, Dec into a unit vector
+	celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
+	// Project the observation onto the resulting heliocentric sphere
+	targposvec={};
+	deltavec={};
+	status = helioproj02(unitbary,observernow,heliodistvec[ptct], deltavec, targposvec);
+	if(status==1 || status==2) {
+	  heliopos1.push_back(targposvec[0]);
+	  if(status==2) heliopos2.push_back(targposvec[1]);
+	} else {
+	  //return(status);
+	  // Push through this error rather than returning; hopefully the dummy
+	  // values set in helioproj will cause the point to be rejected.
+	}
+      }
+      if(long(heliopos1.size())!=ptnum) {
+	//return(3);
+      }
+      if(long(heliopos2.size())==ptnum) {
+	// There were valid solutions to both projection geometries,
+	// so we must keep track of the planarity of both.
+	bothcases=1;
+      }
+    } else if(config.use_heliovane==1) {
+      bothcases=0; // Always, when using heliovane: bothcases==1 is possible only with heliolinc.
+      // We are processing input from heliovane, with heliovane-style hypotheses.
+      // Calculate approximate heliocentric ecliptic longitude (lambda) from the
+      // input quadratic approximation. This is all in units of degrees an days.
+      lambda0 = onecluster.heliohyp0;
+      lambda_dot = onecluster.heliohyp1;
+      lambda_ddot = onecluster.heliohyp2;
+      lambdavec={};
+      for(ptct=0; ptct<ptnum; ptct++) {
+	// Calculate approximate heliocentric ecliptic longitude from the input quadratic approximation.
+	
+	if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+	  // A previous execution of link_purify or link_planarity has fit
+	  // an orbit and supplied us with a value for MJD at the epoch.
+	  // Use this as the reference MJD.
+	  delta1 = clusterdets[ptct].MJD - onecluster.orbit_MJD;
+	} else {
+	  delta1 = clusterdets[ptct].MJD - onecluster.reference_MJD;
+	} 
+	lambdavec.push_back(lambda0 + lambda_dot*delta1 + 0.5*lambda_ddot*delta1*delta1);
+      }
+      // Now infer the 3-D positions, and heliocentric polar coordinates, of each point
+      // based on these hypothetical heliocentric ecliptic longitudes
+      heliopos1 = {};
+      heliopos2 = {};
+      for(ptct=0; ptct<ptnum; ptct++) {
+	// Figure out where the observer is.
+	imct = clusterdets[ptct].image;
+	if(imct>=imnum) {
+	  return(8);
+	}
+	observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
+	// Convert the observational RA, Dec into a unit vector
+	celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
+	// Project the observation onto the resulting heliocentric sphere.
+	// (scalar temporaries: vaneproj01d takes double&/point3d&, not vectors)
+	double vdelta=0.0l; point3d vtarg=point3d(0.0L,0.0L,0.0L);
+	status = vaneproj01d(unitbary,observernow,lambdavec[ptct],min_proj_sine,vdelta,vtarg);
+	if(status==0) heliopos1.push_back(vtarg);
+	else {
+	  //return(status);
+	}
+      }
+      if(long(heliopos1.size())!=ptnum) {
+	//return(3);
+      }
+    }
+    // Reject (rather than risk OOB) if projection did not yield every point.
+    if(long(heliopos1.size())!=ptnum) return(2);
+    // Further processing does not care if we started with heliolinc or heliovane.
+    status = planepolefind(heliopos1,polepos);
+    if(status!=0) {
+      //return(status);
+      return(2); // reject: projection/kepler failure
+    }
+    normout1 = 0.0l;
+    planeout1 = {};
+    for(ptct=0; ptct<ptnum; ptct++) {
+      // Calculate and store the absolute deviation of this point from the plane, in km.
+      planeout1.push_back(fabs(dotprod3d(heliopos1[ptct],polepos)));
+      // Squared deviation, scaled by heliocentric distance, normalized to 1 AU.
+      normout1 += DSQUARE(planeout1[ptct]*AU_KM/vecabs3d(heliopos1[ptct]));
+    }
+    // Calculate RMS deviation from planarity, scaled to a heliocentric distance
+    normout1 = sqrt(normout1/double(ptnum));
+    if(bothcases==1) {
+      // There were two valid solutions to the projection for every point.
+      // This is possible with heliolinc (though not heliovane), for objects
+      // inside Earth's orbit. Handle the other case too.
+      status = planepolefind(heliopos2,polepos);
+      if(status==0) {
+	normout2 = 0.0l;
+	planeout2 = {};
+	for(ptct=0; ptct<ptnum; ptct++) {
+	// Calculate and store the absolute deviation of this point from the plane, in km.
+	  planeout2.push_back(fabs(dotprod3d(heliopos2[ptct],polepos)));
+	  // Squared deviation, scaled by heliocentric distance, normalized to 1 AU.
+	  normout2 += DSQUARE(planeout2[ptct]*AU_KM/vecabs3d(heliopos2[ptct]));
+	}
+	// Calculate RMS deviation from planarity, scaled to a heliocentric distance
+	normout2 = sqrt(normout2/double(ptnum));
+      } else {
+	// No valid pole for the second solution. Set normout2 very large so it gets ignored.
+	normout2 = LARGERR2;
+      }
+    }
+
+  return(0);
+}
+
+// link_purify_chisq_omp: 2026 — OpenMP-parallel version of link_purify_chisq.
+// Identical functionality and invocation, plus an n_workers argument (nw).
+// Phase A (per-cluster orbit fitting, the runtime-dominant step) is parallelized
+// with a static block decomposition across nw workers, each accumulating into a
+// thread-local buffer. Phase B (greedy detection-conflict deduplication) is the
+// same sequential metric-ordered pass as the serial version. Results are identical
+// to link_purify_chisq except for tie-breaking among clusters with exactly equal
+// metric, matching the behavior of the existing link_planarity_omp.
+int link_purify_chisq_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, int nw, vector <hlclust> &outclust, vector <longpair> &outclust2det)
+{
+  vector <hlclust> inclust;
+  vector  <longpair> inclust2det;
+  long imnum = image_log.size();
+  long detnum = detvec.size();
+  long inclustnum = inclust1.size();
+  vector <int> detusedvec = {};
+  vector <vector <hlclust>> holdclust_mat;
+  vector <vector <vector <long>>> clustindmat_mat;
+  vector <int> error_cases;
+  vector <hlclust> holdclust;
+  vector <vector <long>> clustindmat;
+  vector <double_index> metric_index;
+  long clusterct,clusterct2,goodclusternum,threadct;
+  clusterct = clusterct2 = goodclusternum = threadct = 0;
+  double_index dindex = double_index(0l,0);
+  vector <double_index> sortclust;
+  long i=0;
+  int status=1;
+
+  make_ivec(detnum, detusedvec); // All the entries are guaranteed to be 0.
+
+  holdclust={};
+  clustindmat={};
+  outclust={};
+  outclust2det={};
+
+  cout << "Launching link_purify_chisq_omp()\n";
+  int global_fatal=0; // set by any thread on a fatal per-cluster error; dynamic schedule cannot break a worksharing loop
+  if(nw>0) {
+    omp_set_num_threads(nw);
+    cout << "Explicitly setting OpenMP thread count to " << nw << " (via nw argument)\n";
+  }
+  if(config.useorbMJD>0) cout << "Epoch-of-orbit MJD will be used as MJDref, if available.\n";
+  else  cout << "Old reference MJD from heliolinc will be used as MJDref\n";
+  cout << "Maximum RMS in km: " << config.maxrms << "\n";
+  if(config.ptpow>=0 && config.nightpow>=0) {
+    cout << "In calculating the cluster quality metric, the number of\nunique points will be raised to the power of " << config.ptpow << " and\n";
+    cout << "the number of unique nights will be raised to the power of " << config.nightpow << ".\n";
+  } else {
+    cout << "Because the cluster-metric exponent for the number of unique points (which is set to " << config.ptpow << ") and/or\n";
+    cout << "the corresponding exponent for the number of unique nights (which is set to " << config.nightpow << ") is negative,\n";
+    cout << "a special (and recommended) case is triggered in which the cluster metric\n";
+    cout << "will be the product of the numbers of unique detections on every night that had some detections.\n";
+    cout << "E.g., an object observed twice per night on three nights would get a metric of 2*2*2 = 8.\n";
+  }
+  cout << "The total timespan will be raised to the power of " << config.timepow << ",\n";
+  cout << "and the astrometric RMS will be raised to the power of (negative) " << config.rmspow << "\n";
+  if(config.verbose>=1) cout << "verbose output has been selected\n";
+
+  // Cull out exact duplicates using the parallel tournament funnel (identical
+  // output to serial link_dedup(); falls back to serial for nw<=1 / tiny input).
+  status =  link_dedup_funnel(inclust1, inclust2det1, inclust, inclust2det, nw);
+  if(status!=0) {
+    cerr << "ERROR: link_dedup_funnel returned status " << status << "\n";
+    cerr << "link_purify_chisq_omp aborting\n";
+    return(status);
+  }
+  inclustnum = inclust.size();
+  cout << "Duplicate-culled cluster summary vector has length " << inclustnum << ",\n";
+
+  // Set up per-thread storage
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "nthreads = " << nt << "\n";
+  long thread_clustnum = inclustnum/nt;
+  while(nt*thread_clustnum < inclustnum) thread_clustnum++;
+
+  {
+    vector <hlclust> ov1;
+    vector <vector <long>> ov2;
+    for(threadct=0; threadct<nt; threadct++) {
+      ov1={};
+      ov2={};
+      holdclust_mat.push_back(ov1);
+      clustindmat_mat.push_back(ov2);
+      error_cases.push_back(0);
+    }
+  }
+
+  #pragma omp parallel
+  {
+    int ithread = omp_get_thread_num();
+    long inclustct=0;
+    double clustmetric = 0.0l;
+    hlclust onecluster = hlclust(0, 0.0l, 0.0l, 0.0l, 0.0l, 0, 0.0l, 0, 0, 0.0l, "NULL", 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0);
+    vector <long> clustind;
+    vector <hldet> clusterdets;
+    vector <hldet> clusterdets2;
+    int ptnum,ptct,istimedup;
+    long rejmax,rejnum;
+    ptnum=ptct=istimedup=0;
+    point3d onepoint = point3d(0.0L,0.0L,0.0L);
+    vector <point3d> observerpos;
+    vector <point3d> observervel;
+    vector <double> obsMJD, obsRA, obsDec, crosstrack, alongtrack, fitRA, fitDec;
+    vector <double> resid, crossresid, alongresid, orbit, mjdstep, statevec;
+    double geodist1,geodist2, astromrms, chisq;
+    double ftol = FTOL_HERGET_SIMPLEX;
+    double simplex_scale = SIMPLEX_SCALEFAC;
+    double X, Y, Z, dt;
+    X = Y = Z = dt = 0l;
+    point3d startpos = point3d(0.0l,0.0l,0.0l);
+    point3d startvel = point3d(0.0l,0.0l,0.0l);
+    point3d endpos = point3d(0.0l,0.0l,0.0l);
+    point3d endvel = point3d(0.0l,0.0l,0.0l);
+    long daysteps,obsnights;
+    daysteps=obsnights=0;
+    long imct=0;
+    long i=0;
+    int is_identical=0;
+    int hardfail=0;
+
+    #pragma omp for schedule(dynamic)
+    for(inclustct=0; inclustct<inclustnum; inclustct++) {
+    if(global_fatal) continue; // a fatal error occurred in some thread; drain remaining iterations
+    hardfail=0;                // reset per iteration (dynamic schedule reuses this thread across clusters)
+    onecluster = inclust[inclustct];
+    if(inclustct!=onecluster.clusternum) {
+      cerr << "ERROR: cluster index mismatch " << inclustct << " != " << onecluster.clusternum << " at input cluster " << inclustct << "\n";
+      { error_cases[ithread]=5; global_fatal=1; continue; }
+    }
+    if(onecluster.totRMS<=config.maxrms && onecluster.obsnights>=config.minobsnights && onecluster.uniquepoints>=config.minpointnum) {
+      // This cluster passes the initial cut. Analyze it.
+      // Load a vector with the indices to detvec
+      clustind = {};
+      clustind = tracklet_lookup(inclust2det, onecluster.clusternum); //CHANGED from inclustct to onecluster.clusternum
+      ptnum = clustind.size();
+      if(ptnum!=onecluster.uniquepoints) {
+	cerr << "ERROR: point number mismatch " << ptnum << " != " << onecluster.uniquepoints << " at input cluster " << inclustct << "\n";
+	{ error_cases[ithread]=6; global_fatal=1; continue; }
+      }
+      // Load vector of detections for this cluster
+      clusterdets={};
+      for(i=0; i<ptnum; i++) {
+	clusterdets.push_back(detvec[clustind[i]]);
+	clusterdets[i].index=clustind[i]; // Saves indices, to track later sorting.
+      }
+      sort(clusterdets.begin(), clusterdets.end(), early_hldet());
+      // Change added on April 15, 2025: remove exact duplicates
+      clusterdets2 = clusterdets;
+      clusterdets={};
+      clustind = {};
+      ptct=0;
+      clusterdets.push_back(clusterdets2[ptct]);
+      clustind.push_back(clusterdets2[ptct].index);
+      for(ptct=1;ptct<ptnum;ptct++) {
+	i=clusterdets.size()-1;
+	is_identical=0;
+	// Loop back through already-loaded points in clusterdets,
+	// terminating the loop as soon as we either find an identical
+	// line or get out of the regime in the sorted list where
+	// identical lines would be possible.
+	while(i>=0 && fabs(clusterdets[i].MJD-clusterdets2[ptct].MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(clusterdets[i].obscode,clusterdets2[ptct].obscode,3)==0 && clusterdets[i].RA==clusterdets2[ptct].RA && is_identical==0) {
+	  // RA and obscode are already confirmed to be identical; check Dec and MJD to see if point i is truly identical to ptct. 
+	  if(clusterdets[i].MJD==clusterdets2[ptct].MJD && clusterdets[i].Dec==clusterdets2[ptct].Dec) is_identical=1;
+	  i--;
+	}
+	if(is_identical==0) {
+	  // Detection ptct is unique; add it to the operation vector
+	  clusterdets.push_back(clusterdets2[ptct]);
+	  clustind.push_back(clusterdets2[ptct].index);
+	}
+      }
+      // Re-define ptnum based on de-duplicated vector
+      ptnum = clusterdets.size();
+      onecluster.uniquepoints = ptnum;
+      // Finished removing exact duplicates; end new code added April 15.
+      // Check for time duplicates (which now, logically, must differ in RA, Dec, and/or obscode).
+      istimedup=0;
+      for(ptct=1; ptct<ptnum; ptct++) {
+	if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+      }
+	    
+
+      // Optional planarity pre-cull (-max_oop): reject obviously non-coplanar
+      // linkages with a fast geometric test BEFORE the expensive orbit fit.
+      // Disabled unless config.max_oop>0 (driver default -1), so behavior is
+      // byte-identical to plain chisq when -max_oop is not supplied. This is a
+      // CLUSTER-level reject (whole linkage), not link_planarity's point-culling,
+      // so set max_oop a bit looser than for standalone link_planarity.
+      if(config.max_oop > 0.0l) {
+        double pl_normout1=LARGERR2, pl_normout2=LARGERR2; int pl_both=0;
+        int pl_status = cluster_planarity_oop(onecluster, clusterdets, image_log, config, pl_normout1, pl_normout2, pl_both);
+        if(pl_status==8) { error_cases[ithread]=8; global_fatal=1; continue; } // image index OOB (fatal, as in link_planarity)
+        if(pl_status!=0) continue; // could not project/integrate this cluster -> reject
+        if(!(pl_normout1<=config.max_oop || (pl_both==1 && pl_normout2<=config.max_oop))) continue; // fails planarity -> skip fit
+      }
+      // Perform orbit fitting using the method of Herget, to get astrometric residuals
+      // Load observational vectors
+      observerpos = observervel = {};
+      obsMJD = obsRA = obsDec = crosstrack = alongtrack = fitRA = fitDec = resid = crossresid = alongresid = orbit = {};
+      for(ptct=0; ptct<ptnum; ptct++) {
+	obsMJD.push_back(clusterdets[ptct].MJD);
+	obsRA.push_back(clusterdets[ptct].RA);
+	obsDec.push_back(clusterdets[ptct].Dec);
+	if(clusterdets[ptct].sig_across <= 0.0 || !isnormal(clusterdets[ptct].sig_across)) {
+	  // No valid cross-track uncertainty given; load dummy value
+	  crosstrack.push_back(SQRT2INV);
+	} else crosstrack.push_back(clusterdets[ptct].sig_across);
+	if(clusterdets[ptct].sig_along <= 0.0 || !isnormal(clusterdets[ptct].sig_along)) {
+	  // No valid cross-track uncertainty given; load dummy value
+	  alongtrack.push_back(SQRT2INV);
+	} else alongtrack.push_back(clusterdets[ptct].sig_along);
+	imct = clusterdets[ptct].image;
+	if(imct>=imnum) {
+	  cerr << "ERROR: attempting to access image " << imct << " of only " << imnum << " available\n";
+	  { error_cases[ithread]=8; hardfail=1; break; }
+	}
+	X = image_log[imct].X;
+	Y = image_log[imct].Y;
+	Z = image_log[imct].Z;
+	if(image_log[imct].MJD!=clusterdets[ptct].MJD) {
+	  // A shutter-travel correction must have been applied to the
+	  // detection time relative to the image time. Use the stored
+	  // velocity info from the image log to apply a correction to
+	  // the observer position.
+	  dt = clusterdets[ptct].MJD - image_log[imct].MJD;
+	  if(dt*SOLARDAY > MAX_SHUTTER_CORR) {
+	    cerr << "ERROR: detection vs. image time mismatch of " << dt*SOLARDAY << " seconds.\n";
+	    cerr << "Something has gone wrong: no shutter is that slow\n";
+	    { error_cases[ithread]=4; hardfail=1; break; }
+	  }
+	  X += image_log[imct].VX*dt;
+	  Y += image_log[imct].VY*dt;
+	  Z += image_log[imct].VZ*dt;
+	}
+	onepoint = point3d(X,Y,Z);
+	observerpos.push_back(onepoint);
+	onepoint = point3d(image_log[imct].VX,image_log[imct].VY,image_log[imct].VZ);
+	observervel.push_back(onepoint);
+      }
+      if(hardfail) { global_fatal=1; continue; }
+      // All points now loaded; set up for orbit-fitting
+      if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+	// A previous execution of link_purify or link_planarity has fit
+	// an orbit and supplied us with a value for MJD at the epoch.
+	// Use state vectors from the orbit fit
+	startpos.x = onecluster.orbitX;
+	startpos.y = onecluster.orbitY;
+	startpos.z = onecluster.orbitZ;
+	startvel.x = onecluster.orbitVX;
+	startvel.y = onecluster.orbitVY;
+	startvel.z = onecluster.orbitVZ;
+	// Use the MJD at the orbit epoch as the reference MJD.
+	// Calculate position at first observation
+	Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+      } else {
+	// Use mean state vectors to estimate positions
+	startpos.x = onecluster.posX;
+	startpos.y = onecluster.posY;
+	startpos.z = onecluster.posZ;
+	startvel.x = onecluster.velX;
+	startvel.y = onecluster.velY;
+	startvel.z = onecluster.velZ;
+	// There used to be a check against solar escape velocity here,
+	// but it isn't needed since we are using the universal variables
+	// formulation, able to handle unbound as well as bound orbits.
+	// Calculate position at first observation
+	Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+      }
+      
+      // Find vector relative to the observer by subtracting off the observer's position.
+      endpos.x -= observerpos[0].x;
+      endpos.y -= observerpos[0].y;
+      endpos.z -= observerpos[0].z;
+      geodist1 = vecabs3d(endpos)/AU_KM;
+      if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+	// Calculate position at last observation
+	Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+      } else {
+	// Calculate position at last observation
+	Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+      }
+      endpos.x -= observerpos[ptnum-1].x;
+      endpos.y -= observerpos[ptnum-1].y;
+      endpos.z -= observerpos[ptnum-1].z;
+      geodist2 = vecabs3d(endpos)/AU_KM;
+      simplex_scale = SIMPLEX_SCALEFAC;
+      if(config.verbose>=2) {
+	cout << "Calling Hergetfit_vstar_chisq with dists " << geodist1 << " and " << geodist2 << "\n";
+      }
+      if(config.verbose>=2) {
+	cout << "Launching Hergetfit_vstar_chisq for cluster " << inclustct << ":\n";
+	for(i=0;i<=ptnum;i++) {
+	  cout << "Point " << i << ": " << obsMJD[i] << " " << obsRA[i] << " "  << obsDec[i] << " " << crosstrack[i] << " " << alongtrack[i] << "\n";
+	}
+      }
+      if(config.verbose>=2) cout << "Cluster " << inclustct << " of " << inclustnum << " is good: ";
+      if(config.verbose>=2) cout << "\n";
+      if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << ": ";
+      chisq = Hergetfit_vstar_chisq(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, config.ecc_penalty, fitRA, fitDec, crossresid, alongresid, orbit, config.verbose);
+      if(chisq>=LARGERR3) {
+	cerr << "WARNING: Hergetfit_vstar_chisq() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+      }
+      // orbit vector contains: semimajor axis [0], eccentricity [1],
+      // mjd at epoch [2], the state vectors [3-8], and the number of
+      // orbit evaluations (~iterations) required to reach convergence [9].
+
+      // Load a residual vector containing the contribution that each point makes to
+      // the chi-square value. This is needed to enable identification of the worst points.
+      resid = {};
+      if(chisq>=LARGERR3 || long(crossresid.size())<ptnum || long(alongresid.size())<ptnum) {
+        // FIX (purify glob segfault): the orbit fit failed so crossresid/alongresid were NOT
+        // refilled and may be shorter than ptnum. Mark every point as a maximal-residual
+        // outlier so the cluster is purified away / rejected instead of reading stale OOB.
+        for(ptct=0;ptct<ptnum;ptct++) resid.push_back(LARGERR3);
+      } else {
+        for(ptct=0;ptct<ptnum;ptct++) resid.push_back(DSQUARE(crossresid[ptct]/crosstrack[ptct]) + DSQUARE(alongresid[ptct]/alongtrack[ptct]));
+      }
+      if(DIDNOT) {
+	for(ptct=0;ptct<ptnum;ptct++) {
+	  cout << "obs,calc,resid,uncert: " << obsMJD[ptct] << " " << obsRA[ptct] << " " << obsDec[ptct] << " " << fitRA[ptct] << " " << fitDec[ptct] << " " << crossresid[ptct] << " " << alongresid[ptct] << " " << crosstrack[ptct] << " " << alongtrack[ptct] << " " << resid[ptct] << "\n";
+	}
+      }
+      chisq /= double(ptnum); // Now it's the reduced chi square value
+      astromrms = sqrt(chisq); // This gives the actual astrometric RMS in arcseconds if crosstrack
+      // and alongtrack errors are all 1/sqrt(2.0) arcsec. Otherwise it's a measure of the
+      // RMS in units of the typical uncertainty.
+      if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+
+      // If good, just write it out.
+      if(astromrms <= config.max_astrom_rms && istimedup==0) {
+	// CLUSTER IS GOOD
+	if(config.verbose>=1 || inclustct%1000==0) cout << "Writing out good cluster " << inclustct << "\n";
+	// Recalculate clustermetric
+	if(config.ptpow>=0 && config.nightpow>=0) {
+	  // Calculate the cluster metric normally
+	  clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+	} else {
+	  // New option added April 16, 2025:
+	  // Setting config.ptpow or config.nightpow to any negative value
+	  // triggers a new sort of metric, equal to the products of all
+	  // the observations per night multiplied together.
+	  vector <int> obs_per_night;
+	  int obs_this_night=1;
+	  int first_obs_tonight=0;
+	  for(ptct=1;ptct<ptnum;ptct++) {
+	    if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+	      // Detection ptct is on the same night as ptct-1. Augment the count of observations for this night.
+	      obs_this_night++;
+	    } else {
+	      // We've transitioned to a new night. Record the number of observations on the last night
+	      obs_per_night.push_back(obs_this_night);
+	      obs_this_night=1;
+	      first_obs_tonight=ptct;
+	    }
+	  }
+	  // Handle a final night
+	  obs_per_night.push_back(obs_this_night);
+	  clustmetric = double(obs_per_night[0]);
+	  for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+	  clustmetric*=intpowD(onecluster.timespan,config.timepow);
+	}
+	// Include the astrometric RMS value in the cluster metric and the RMS vector
+	onecluster.astromRMS = astromrms; // rmsvec[3]: astrometric rms in arcsec.
+	onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow); // Under the default value rmspow=2, this is equivalent
+	                                                                  // to dividing by the chi-square value rather than just
+	                                                                  // the astrometric RMS, which has the desireable effect of
+	                                                                  // prioritizing low astrometric error even more.
+	onecluster.orbit_a = orbit[0]/AU_KM;
+	onecluster.orbit_e = orbit[1];
+	statevec={};
+	for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
+	onecluster.orbit_incl = statevec2kep_incl(statevec);
+	onecluster.orbit_MJD = orbit[2];
+	onecluster.orbitX = orbit[3];
+	onecluster.orbitY = orbit[4];
+	onecluster.orbitZ = orbit[5];
+	onecluster.orbitVX = orbit[6];
+	onecluster.orbitVY = orbit[7];
+	onecluster.orbitVZ = orbit[8];
+	onecluster.orbit_eval_count = long(round(orbit[9]));
+	// Push new cluster on to holding vector holdclust
+	holdclust_mat[ithread].push_back(onecluster);
+	clustindmat_mat[ithread].push_back(clustind);
+      } else if((astromrms>config.max_astrom_rms || istimedup>0) && ptnum>config.minpointnum) {
+	// CLUSTER IS NOT GOOD, BUT MIGHT BE FIXABLE
+	if(config.verbose>=1 || inclustct%1000==0) cout << "Trying to purify cluster " << inclustct << " with " << ptnum << " points\n";
+	// Iteratively remove astrometric outliers, or remove time duplicates
+	// Setup for the main while loop:
+	rejnum = 0;
+	rejmax = config.rejfrac*ptnum;
+	if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
+	if(rejmax > config.maxrejnum) rejmax=config.maxrejnum; // Insurance policy against excessive runtimes in pathological cases.
+	// Main while loop, which iteratively removes outliers
+	while(rejnum<rejmax && ptnum>config.minpointnum) {
+	  if(astromrms>config.max_astrom_rms) {
+	    // The reason the cluster is not good is that the astrometric RMS is too high.
+	    // Identify the worst point.
+	    int wp=0;
+	    double wresid = resid[0];
+	    for(i=1;i<ptnum;i++) {
+	      if(resid[i]>wresid) {
+		wresid=resid[i];
+		wp = i;
+	      }
+	    }
+	    // Remove worst point from clusterdets and associated vectors
+	    clusterdets.erase(clusterdets.begin()+wp);
+	    obsMJD.erase(obsMJD.begin()+wp);
+	    obsRA.erase(obsRA.begin()+wp);
+	    obsDec.erase(obsDec.begin()+wp);
+	    crosstrack.erase(crosstrack.begin()+wp);
+	    alongtrack.erase(alongtrack.begin()+wp);
+	    observerpos.erase(observerpos.begin()+wp);
+	    ptnum--;
+	    rejnum++;
+	    if(long(obsMJD.size())!=ptnum) {
+	      cerr << "Vector trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
+	      { error_cases[ithread]=9; hardfail=1; break; }
+	    }
+	    // Worst outlier rejected, ready for new round of orbit-fitting.
+	  } else if(astromrms <= config.max_astrom_rms && istimedup>0) {
+	    // The reason the cluster is not good is that it still contains
+	    // time-duplicates, even though the astrometric RMS is OK.
+	    vector <long> badpoints = {};
+	    for(ptct=1; ptct<ptnum; ptct++) {
+	      if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) {
+		// Points ptct-1 and ptct are time-duplicates.
+		// Mark for rejection whichever point has the larger RMS.
+		if(resid[ptct-1]>resid[ptct]) badpoints.push_back(ptct-1);
+		else badpoints.push_back(ptct);
+	      }
+	    }
+	    if(badpoints.size()<=0) {
+	      cerr << "ERROR: link_purify in duplicate-rejection loop, found no time-duplicates to reject\n";
+	    }
+	    // sort the badpoints vector
+	    sort(badpoints.begin(), badpoints.end());
+	    // Erase the bad points, starting from the end of the vectors
+	    for(i=long(badpoints.size()-1); i>=0; i--) {
+	      clusterdets.erase(clusterdets.begin()+badpoints[i]);
+	      obsMJD.erase(obsMJD.begin()+badpoints[i]);
+	      obsRA.erase(obsRA.begin()+badpoints[i]);
+	      obsDec.erase(obsDec.begin()+badpoints[i]);
+	      crosstrack.erase(crosstrack.begin()+badpoints[i]);
+	      alongtrack.erase(alongtrack.begin()+badpoints[i]);
+	      observerpos.erase(observerpos.begin()+badpoints[i]);
+	      ptnum--;
+	      rejnum++;
+	    }
+	    if(long(obsMJD.size())!=ptnum) {
+	      cerr << "Vector timedupe trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
+	      { error_cases[ithread]=9; hardfail=1; break; }
+	    }
+	    // All time-duplicates rejected, ready for next round of orbit-fitting.
+	  } else {
+	    // This is a weird, illogical case, and probably the reason we got here
+	    // has to do with NANs. In any case, the cluster is very unlikely to be
+	    // salvageable.
+	    if(config.verbose>=1 || inclustct%1000==0) cout << "Weird cluster case, REJECTING\n";
+	    break; // Break out of the point-culling while loop, abandoning this cluster.
+	  }
+	  // Check if cluster is still valid
+	  // load vector of MJD steps
+	  mjdstep={};
+	  for(long i=1; i<ptnum; i++) mjdstep.push_back(obsMJD[i]-obsMJD[i-1]);
+	  // Count steps large enough to suggest a daytime period between nights.
+	  daysteps=0;	
+	  for(long i=0; i<long(mjdstep.size()); i++) {
+	    if(mjdstep[i]>NIGHTSTEP) daysteps++;
+	  }
+	  obsnights = daysteps+1;
+	  // Does cluster pass the criteria for a linked detection?
+	  if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
+	    // This cluster became invalid when we rejected the outlier(s).
+	    if(config.verbose>=1 || inclustct%1000==0) cout << "Cluster became invalid, REJECTING\n";
+	    break; // Break out of point-culling while loop, since
+	           // this cluster is unredeemable.
+	  }
+	  // If we get here, rejection of the point didn't make the cluster invalid.
+	  // Begin analysis by loading new clustind vector.
+	  clustind = {};
+	  for(i=0;i<ptnum;i++) clustind.push_back(clusterdets[i].index);
+	  // Check for time-duplicates
+	  istimedup=0;
+	  for(ptct=1; ptct<ptnum; ptct++) {
+	    if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+	  }
+	  // Use state vectors from previous fit to estimate beginning and ending geocentric distances.
+	  startpos.x = orbit[3];
+	  startpos.y = orbit[4];
+	  startpos.z = orbit[5];
+	  startvel.x = orbit[6];
+	  startvel.y = orbit[7];
+	  startvel.z = orbit[8];
+	  // Note that orbit[2] is MJD at the epoch.
+	  // Calculate position at first observation
+	  Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+	  // Find vector relative to the observer by subtracting off the observer's position.
+	  endpos.x -= observerpos[0].x;
+	  endpos.y -= observerpos[0].y;
+	  endpos.z -= observerpos[0].z;
+	  geodist1 = vecabs3d(endpos)/AU_KM;
+	  // Calculate position at last observation
+	  Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+	  endpos.x -= observerpos[ptnum-1].x;
+	  endpos.y -= observerpos[ptnum-1].y;
+	  endpos.z -= observerpos[ptnum-1].z;
+	  geodist2 = vecabs3d(endpos)/AU_KM;
+	    
+	  simplex_scale = SIMPLEX_SCALEFAC;
+	  if(config.verbose>=2) {
+	    cout << "Calling Hergetfit_vstar_chisq with dists " << geodist1 << " and " << geodist2 << "\n";
+	  }
+	  if(config.verbose>=2) {
+	    cout << "Launching Hergetfit_vstar_chisq for cluster " << inclustct << ":\n";
+	    for(i=0;i<=ptnum;i++) {
+	      cout << "Point " << i << ": " << obsMJD[i] << " " << obsRA[i] << " "  << obsDec[i] << " " << crosstrack[i] << " " << alongtrack[i] << "\n";
+	    }
+	  }
+	  if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << " minus " << rejnum << " outliers: ";
+	  chisq = Hergetfit_vstar_chisq(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, config.ecc_penalty, fitRA, fitDec, crossresid, alongresid, orbit, config.verbose);
+	  if(chisq>=LARGERR3) {
+	    cerr << "WARNING: Hergetfit_vstar_chisq() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+	  }
+	  // orbit vector contains: semimajor axis [0], eccentricity [1],
+	  // mjd at epoch [2], the state vectors [3-8], and the number of
+	  // orbit evaluations (~iterations) required to reach convergence [9].
+	  
+	  // Load a residual vector containing the contribution that each point makes to
+	  // the chi-square value. This is needed to enable identification of the worst points.
+	  resid = {};
+	  if(chisq>=LARGERR3 || long(crossresid.size())<ptnum || long(alongresid.size())<ptnum) {
+	    // FIX (purify glob segfault): the orbit fit failed so crossresid/alongresid were NOT
+	    // refilled and may be shorter than ptnum. Mark every point as a maximal-residual
+	    // outlier so the cluster is purified away / rejected instead of reading stale OOB.
+	    for(ptct=0;ptct<ptnum;ptct++) resid.push_back(LARGERR3);
+	  } else {
+	    for(ptct=0;ptct<ptnum;ptct++) resid.push_back(DSQUARE(crossresid[ptct]/crosstrack[ptct]) + DSQUARE(alongresid[ptct]/alongtrack[ptct]));
+	  }
+      
+	  chisq /= double(ptnum); // Now it's the reduced chi square value
+	  astromrms = sqrt(chisq); // This gives the actual astrometric RMS in arcseconds if all the
+	  // crosstrack and alongtrack uncertainties are 1/sqrt(2). Otherwise it's a measure of the
+	  // RMS in units of the typical uncertainty.
+
+	  if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+	  
+	  // Check if the astrometric RMS has dropped to the acceptable range,
+	  // and no time-duplicates remain.
+	  if(astromrms <= config.max_astrom_rms && istimedup==0) {
+	    if(config.verbose>=1 || inclustct%1000==0) cout << "astromrms success: " << astromrms << " <= " << config.max_astrom_rms << ", dup=" << istimedup << ": writing out purified cluster " << inclustct << "\n";
+	    // CLUSTER HAS BEEN SUCCESSFULLY PURIFIED.
+	    // The cluster is good and should be written out.
+	    // Revise onecluster to reflect the deleted points
+	    onecluster.timespan = obsMJD[ptnum-1]-obsMJD[0];
+	    onecluster.uniquepoints = ptnum;
+	    onecluster.obsnights = obsnights;
+	    // Recalculate clustermetric
+	    if(config.ptpow>=0 && config.nightpow>=0) {
+	      // Calculate the cluster metric normally
+	      clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+	    } else {
+	      // New option added April 16, 2025:
+	      // Setting config.ptpow or config.nightpow to any negative value
+	      // triggers a new sort of metric, equal to the products of all
+	      // the observations per night multiplied together.
+	      vector <int> obs_per_night;
+	      int obs_this_night=1;
+	      int first_obs_tonight=0;
+	      for(ptct=1;ptct<ptnum;ptct++) {
+		if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+		  // Detection ptct is on the same night as ptct-1. Augment the count of observations for this night.
+		  obs_this_night++;
+		} else {
+		  // We've transitioned to a new night. Record the number of observations on the last night
+		  obs_per_night.push_back(obs_this_night);
+		  obs_this_night=1;
+		  first_obs_tonight=ptct;
+		}
+	      }
+	      // Handle a final night
+	      obs_per_night.push_back(obs_this_night);
+	      clustmetric = double(obs_per_night[0]);
+	      for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+	      clustmetric*=intpowD(onecluster.timespan,config.timepow);
+	    }
+	    // Include the astrometric RMS value in the cluster metric and the RMS vector
+	    onecluster.astromRMS = astromrms; // rmsvec[3]: astrometric rms in arcsec.
+	    onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow); // Under the default value rmspow=2, this is equivalent
+	                                                                      // to dividing by the chi-square value rather than just
+	                                                                      // the astrometric RMS, which has the desireable effect of
+	                                                                      // prioritizing low astrometric error even more.
+	    onecluster.orbit_a = orbit[0]/AU_KM;
+	    onecluster.orbit_e = orbit[1];
+	    statevec={};
+	    for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
+	    onecluster.orbit_incl = statevec2kep_incl(statevec);
+	    onecluster.orbit_MJD = orbit[2];
+	    onecluster.orbitX = orbit[3];
+	    onecluster.orbitY = orbit[4];
+	    onecluster.orbitZ = orbit[5];
+	    onecluster.orbitVX = orbit[6];
+	    onecluster.orbitVY = orbit[7];
+	    onecluster.orbitVZ = orbit[8];
+	    onecluster.orbit_eval_count = long(round(orbit[9]));
+	    // Push new cluster on to holding vector holdclust
+	    holdclust_mat[ithread].push_back(onecluster);
+	    clustindmat_mat[ithread].push_back(clustind);
+	    break; // Break out of point-culling while loop, since we have
+	           // successfully purified the cluster.
+	  } // Closes successful purification case.
+	  if((config.verbose>0 || inclustct%1000==0) && (rejnum>=rejmax || ptnum<=config.minpointnum)) cout << "Cluster became too small: REJECTED.\n";
+	} // Closes point-culling while loop.
+	if(hardfail) { global_fatal=1; continue; }
+	// Close else if case that astrometric RMS was too high, the cluster needed purifying.
+      } else if (ptnum<=config.minpointnum) {
+	if(config.verbose>0 || inclustct%1000==0) cout << "Cluster is too small: REJECTED.\n";
+      }
+    } // Closes initial if case that physical RMS is too high, cluster is rejected immediately.
+    } // end per-cluster loop
+  } // end omp parallel
+
+  // Check for error cases
+  for(threadct=0; threadct<nt; threadct++) {
+    if(error_cases[threadct]==4) {
+      cerr << "ERROR: detection vs. image time mismatch.\n"; return(4);
+    } else if(error_cases[threadct]==5) {
+      cerr << "ERROR: cluster index mismatch.\n"; return(5);
+    } else if(error_cases[threadct]==6) {
+      cerr << "ERROR: point number mismatch.\n"; return(6);
+    } else if(error_cases[threadct]==8) {
+      cerr << "ERROR: image index out of range.\n"; return(8);
+    } else if(error_cases[threadct]==9) {
+      cerr << "ERROR: vector trim count error.\n"; return(9);
+    } else if(error_cases[threadct]!=0) {
+      cerr << "ERROR: unknown error " << error_cases[threadct] << " in link_purify_chisq_omp\n";
+      return(error_cases[threadct]);
+    }
+  }
+
+  // Concatenate per-thread results, renumbering clusters globally.
+  holdclust={};
+  clustindmat={};
+  for(threadct=0; threadct<nt; threadct++) {
+    long clusternum0 = holdclust.size();
+    for(long ii=0;ii<long(holdclust_mat[threadct].size());ii++) {
+      hlclust oc = holdclust_mat[threadct][ii];
+      oc.clusternum = clusternum0+ii;
+      holdclust.push_back(oc);
+    }
+    for(long ii=0;ii<long(clustindmat_mat[threadct].size());ii++) {
+      clustindmat.push_back(clustindmat_mat[threadct][ii]);
+    }
+  }
+  holdclust_mat={};
+  clustindmat_mat={};
+
+  long clusternum = holdclust.size();
+  cout << "Finished loading input clusters: " << clusternum << " out of " << inclustnum << " passed initial screening.\n";
+
+  // Load just clustermetric values and indices into metric_index
+  metric_index = {};
+  for(clusterct=0; clusterct<clusternum; clusterct++) {
+    dindex = double_index(holdclust[clusterct].metric,clusterct);
+    metric_index.push_back(dindex);
+  }
+  // Sort metric_index
+  sort(metric_index.begin(), metric_index.end(), lower_double_index());
+
+  // Loop on clusters, starting with the best (highest metric),
+  // and eliminating duplicates that share already-claimed detections.
+  goodclusternum=0;
+  for(clusterct2=clusternum-1; clusterct2>=0; clusterct2--) {
+    clusterct = metric_index[clusterct2].index;
+    long inclustct = holdclust[clusterct].clusternum;
+    hlclust onecluster = holdclust[clusterct];
+    vector <long> clustind = clustindmat[clusterct];
+    long ptnum = clustind.size();
+    int detsused=0;
+    long ptct=0;
+    char rating[SHORTSTRINGLEN];
+    longpair c2d = longpair(0,0);
+    // Sanity-check the count of unique detections in this cluster
+    if(onecluster.uniquepoints>0 && ptnum!=onecluster.uniquepoints) {
+      cerr << "ERROR: 2nd-stage point number mismatch " << ptnum << " != " << onecluster.uniquepoints << " at input cluster " << inclustct << " (" << clusterct << ")\n";
+      return(7);
+    }
+    // See if all of them are still unused
+    detsused = 0;
+    for(ptct=1; ptct<ptnum; ptct++) {
+      if(detusedvec[clustind[ptct]]!=0) detsused+=1;
+    }
+    if(onecluster.uniquepoints>0 && onecluster.totRMS<=config.maxrms && detsused==0) {
+      // This is a good cluster not already marked as used.
+      goodclusternum++;
+      cout << "Accepted good cluster " << goodclusternum << " with metric " << onecluster.metric << "\n";
+      // See whether cluster is pure or mixed.
+      stringncopy01(rating,"PURE",SHORTSTRINGLEN);
+      for(ptct=1; ptct<ptnum; ptct++) {
+        if(stringnmatch01(detvec[clustind[ptct]].idstring,detvec[clustind[ptct-1]].idstring,SHORTSTRINGLEN) != 0) {
+          stringncopy01(rating,"MIXED",SHORTSTRINGLEN);
+        }
+      }
+      for(i=0;i<SHORTSTRINGLEN;i++) onecluster.rating[i] = rating[i];
+      // Figure out the time order of cluster points, so we can write them out in order.
+      sortclust = {};
+      for(ptct=0; ptct<ptnum; ptct++) {
+        dindex = double_index(detvec[clustind[ptct]].MJD,clustind[ptct]);
+        sortclust.push_back(dindex);
+        // Also mark each detection as used
+        detusedvec[clustind[ptct]]=1;
+      }
+      sort(sortclust.begin(), sortclust.end(), lower_double_index());
+      // Load new clusternumber for onecluster
+      onecluster.clusternum = outclust.size();
+      // Push back the new, vetted cluster on to outclust
+      outclust.push_back(onecluster);
+      // Push back the detection indices
+      for(ptct=0; ptct<ptnum; ptct++) {
+        c2d = longpair(onecluster.clusternum,sortclust[ptct].index);
+        outclust2det.push_back(c2d);
+      }
+    }
   }
   return(0);
 }
@@ -57242,18 +58848,2658 @@ int sunradec_approx01(double MJD,double &sunra, double &sundec)
   return(0);
 }
 
+
+// ================================================================
+// NEW ON omp_dev: OpenMP streaming per-hypothesis parallelism.
+// Everything below this banner is additive — serial functions above
+// (heliolinc_alg_lowmem, link_planarity, link_purify, ...) are not
+// modified. Ported from commits 8ef00d8 and 20a4926, minus any
+// unrelated perf-opt changes.
+// ================================================================
+
+// heliolinc_alg_omp_lowmem: non-streaming OMP variant kept for
+// reference / fallback. The wrapper heliolinc_lowmem_omp.cpp calls
+// heliolinc_alg_omp_lowmem_streaming() below instead.
+int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det)
+{
+  long detnum = detvec.size();
+  if(detnum>=UINT_MAX) {
+    cerr << "ERROR: heliolinc_alg_omp_lowmem called with too long a detection catalog!\n";
+    cerr << "Catalog contains " << detnum << " detections when no more than " << UINT_MAX-1 << " are allowed\n";
+    return(10);
+  }
+  vector <shortclust> outclust_lowmem;
+  vector <uint_pair> clust2det_lowmem;
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+  long accelct=0;
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  long realclusternum, status;
+  realclusternum = status = 0;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+  long i=0;
+  longpair onepair = longpair(0,0);
+  hlclust onecluster = hlclust(0, 0.0l, 0.0l, 0.0l, 0.0l, 0, 0.0l, 0, 0, 0.0l, "NULL", 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0);
+  double posRMS,velRMS,totRMS;
+  posRMS = velRMS = totRMS = 0.0;
+  vector <long> clustind;
+  vector <hldet> clusterdets;
+  vector <double> clustmjd;
+  long clusterct=0;
+  long daysteps=0;
+  long obsnights=0;
+  double timespan=0.0;
+  string rating;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  // Echo config struct
+  cout << "Configuration parameters:\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km\n";
+  cout << "DBSCAN npt: " << config.dbscan_npt << "\n";
+  cout << "Min number of distinct observing nights for a valid linkage: " << config.minobsnights << "\n";
+  cout << "Min time span for a valid linkage: " << config.mintimespan << " days\n";
+  cout << "Min geocentric distance (center of innermost bin): " << config.mingeodist << " AU\n";
+  cout << "Max geocentric distance (will be exceeded by center only of the outermost bin): " << config.maxgeodist << " AU\n";
+  cout << "Logarthmic step size (and bin width) for geocentric distance bins: " << config.geologstep << "\n";
+  cout << "Minimum inferred geocentric distance for a valid tracklet: " << config.mingeoobs << " AU\n";
+  cout << "Minimum inferred impact parameter (w.r.t. Earth) for a valid tracklet: " << config.minimpactpar << " km\n";
+  if(config.verbose) cout << "Verbose output selected\n";
+
+  if(imnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty image catalog\n";
+    return(1);
+  } else if(pairnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty tracklet array\n";
+    return(1);
+  } else if(trk2detnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty trk2det array\n";
+    return(1);
+  } else if(accelnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty heliocentric hypothesis array\n";
+    return(1);
+  }
+
+  // Find MJD for first and last detections.
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(i=0; i<long(detvec.size()); i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cout << "\nERROR: input positive-valued reference MJD is required\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      return(1);
+    } else {
+      cout << "\nUser did not input a positive-valued reference MJD in the\n";
+      cout << "acceptable range, so heliolinc will generate one internally\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << fixed << setprecision(2) << "Adopting reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  // Convert heliocentric radial motion hypothesis matrix
+  // from units of AU, AU/day, and GMSun/R^2
+  // to units of km, km/day, and km/day^2.
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0;accelct<accelnum;accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  // Parallel hypothesis loop: divide hypotheses into cycles of nt threads.
+  // Each thread operates on its own output buffers; results merged serially.
+  outclust_lowmem={};
+  clust2det_lowmem={};
+  realclusternum=0;
+
+  int nt = 0;
+  #pragma omp parallel
+  {
+  nt = omp_get_num_threads();
+  }
+  cout << "nthreads = " << nt << "\n";
+  long cyclenum = accelnum/nt;
+  while(nt*cyclenum < accelnum) cyclenum++;
+
+  vector <vector <shortclust>> outclust_mat;
+  vector <vector <uint_pair>> clust2det_mat;
+  long threadct=0;
+  for(threadct=0; threadct<nt; threadct++) {
+    outclust_mat.push_back(vector<shortclust>());
+    clust2det_mat.push_back(vector<uint_pair>());
+  }
+
+  for(long cyclect=0; cyclect<cyclenum; cyclect++) {
+    long acct=0;
+    for(threadct=0; threadct<nt; threadct++) {
+      outclust_mat[threadct]={};
+      clust2det_mat[threadct]={};
+      acct = threadct + cyclect*nt;
+      if(acct<accelnum) {
+	if(config.verbose>=0) cout << "Thread number " << threadct << " will check hypothesis " << acct << ": " << radhyp[acct].HelioRad << " AU, " << radhyp[acct].R_dot*AU_KM/SOLARDAY << " km/sec " << radhyp[acct].R_dubdot << " GMsun/r^2\n";
+      }
+    }
+    #pragma omp parallel
+    {
+    vector <point6ix2> allstatevecs;
+    long thread_realclusternum = 0;
+    int thread_status=0;
+    int ithread = omp_get_thread_num();
+    int nthreads = omp_get_num_threads();
+    long thread_accelct = ithread + cyclect*nthreads;
+    if(thread_accelct<accelnum) {
+      if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
+	thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+	if(thread_status==1) {
+	  cerr << "FAILURE IN THREAD " << ithread << ": ";
+	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
+	} else if(thread_status==2) {
+	  cerr << "Fatal error case from trk2statevec_univar.\n";
+	}
+      } else if(use_univar == 2) {
+	thread_status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+	if(thread_status==1) {
+	  cerr << "FAILURE IN THREAD " << ithread << ": ";
+	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
+	} else if(thread_status==2) {
+	  cerr << "Fatal error case from trk2statevec_fgfuncRR.\n";
+	}
+      } else if(use_univar == 3) {
+	thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+	if(thread_status==1) {
+	  cerr << "FAILURE IN THREAD " << ithread << ": ";
+	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
+	} else if(thread_status==2) {
+	  cerr << "Fatal error case from trk2statevec_univarRR.\n";
+	}
+      } else {
+	thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+	if(thread_status==1) {
+	  cerr << "FAILURE IN THREAD " << ithread << ": ";
+	  cerr << "hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
+	} else if(thread_status==2) {
+	  cerr << "Fatal error case from trk2statevec_fgfunc.\n";
+	}
+      }
+      if(thread_status==0 && allstatevecs.size()>1) {
+	if(config.verbose>=0) cout << pairnum << " input pairs/tracklets led to " << allstatevecs.size() << " physically reasonable state vectors\n";
+	if(use_univar==6 || use_univar==7) {
+	  thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  if(thread_status!=0) cerr << "ERROR: form_clusters_lowmem exited with error code " << thread_status << "\n";
+	} else if(use_univar==2 || use_univar==3) {
+	  thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  if(thread_status!=0) cerr << "ERROR: form_clusters_RR_lowmem exited with error code " << thread_status << "\n";
+	} else if(use_univar==4 || use_univar==5) {
+	  thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  if(thread_status!=0) cerr << "ERROR: form_clusters_kdR_lowmem exited with error code " << thread_status << "\n";
+	} else {
+	  thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, outclust_mat[ithread], clust2det_mat[ithread], thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+	  if(thread_status!=0) cerr << "ERROR: form_clusters_kd4_lowmem exited with error code " << thread_status << "\n";
+	}
+      }
+    }
+    } // end parallel section
+    // Serial merge: offset cluster numbers from each thread's buffer by the
+    // current global total, then append to the master lowmem vectors.
+    for(threadct=0; threadct<nt; threadct++) {
+      realclusternum = outclust_lowmem.size();
+      for(long k=0; k<long(outclust_mat[threadct].size()); k++) {
+	outclust_mat[threadct][k].clusternum += realclusternum;
+      }
+      for(long k=0; k<long(clust2det_mat[threadct].size()); k++) {
+	clust2det_mat[threadct][k].i1 += (unsigned int)realclusternum;
+      }
+      for(long k=0; k<long(outclust_mat[threadct].size()); k++) {
+	outclust_lowmem.push_back(outclust_mat[threadct][k]);
+      }
+      for(long k=0; k<long(clust2det_mat[threadct].size()); k++) {
+	clust2det_lowmem.push_back(clust2det_mat[threadct][k]);
+      }
+    }
+  } // end cycle loop
+
+  // De-duplicate the final output set
+  cout << "De-duplicating output set of " << outclust_lowmem.size() << " candidate linkages totalling " << clust2det_lowmem.size() << " detections\n";
+  vector <shortclust> outclust_lowmem2;
+  vector  <uint_pair> outclust2det_lowmem2;
+  link_dedup_lowmem2(outclust_lowmem, clust2det_lowmem, outclust_lowmem2, outclust2det_lowmem2);
+  cout << "De-duplicated set contains " << outclust_lowmem2.size() << " linkages totalling " << outclust2det_lowmem2.size() << " detections.\n";
+
+  // Convert from the low-memory classes uint_pair and shortclust
+  // into the desired output classes longpair and hlclust
+  outclust = {};
+  clust2det = {};
+  cout << "Converting from memory-efficient to normal:\n";
+  cout << "outclust_lowmem2 with size " << outclust_lowmem2.size() << " and outclust2det_lowmem2 with size " <<  outclust2det_lowmem2.size() << "\n";
+  // First step: outclust2det_lowmem2 (uint_pair) into clust2det (longpair)
+  for(i=0; i<long(outclust2det_lowmem2.size()); i++) {
+    onepair = longpair(long(outclust2det_lowmem2[i].i1),long(outclust2det_lowmem2[i].i2));
+    clust2det.push_back(onepair);
+  }
+  cout << "Conversion complete for clust2det: size is " << clust2det.size() << "\n";
+  // Now outclust_lowmem2 (shortclust) to outclust (hlclust)
+  for(clusterct=0; clusterct<long(outclust_lowmem2.size()); clusterct++) {
+    clustind = {};
+    if(long(outclust_lowmem2[clusterct].clusternum) != clusterct) {
+      cerr << "ERROR: cluster count mismatch " << outclust_lowmem2[clusterct].clusternum << " != " << clusterct << "\n";
+      return(4);
+    }
+    clustind = tracklet_lookup(clust2det, long(outclust_lowmem2[clusterct].clusternum));
+    long uniquepoints = clustind.size();
+    clusterdets={};
+    clustmjd={};
+    for(i=0; i<uniquepoints; i++) {
+      clusterdets.push_back(detvec[clustind[i]]);
+      clustmjd.push_back(detvec[clustind[i]].MJD);
+    }
+    sort(clustmjd.begin(), clustmjd.end());
+    timespan = clustmjd[clustmjd.size()-1] - clustmjd[0];
+    vector <double> mjdstep;
+    for(i=1; i<long(clustmjd.size()); i++) mjdstep.push_back(clustmjd[i]-clustmjd[i-1]);
+    daysteps=0;
+    for(i=0; i<long(mjdstep.size()); i++) {
+      if(mjdstep[i]>NIGHTSTEP) daysteps++;
+    }
+    obsnights = daysteps+1;
+    rating="PURE";
+    for(long i=1; i<long(clusterdets.size()); i++) {
+      if(stringnmatch01(clusterdets[i].idstring,clusterdets[i-1].idstring,SHORTSTRINGLEN)!=0) rating="MIXED";
+    }
+    posRMS = outclust_lowmem2[clusterct].posRMS;
+    totRMS = outclust_lowmem2[clusterct].totRMS;
+    if(totRMS>posRMS) velRMS = sqrt(totRMS*totRMS - posRMS*posRMS);
+    else velRMS = 0.0;
+    accelct = outclust_lowmem2[clusterct].hypindex;
+    onecluster = hlclust(outclust_lowmem2[clusterct].clusternum, posRMS, velRMS, totRMS, 0.0, outclust_lowmem2[clusterct].pairnum, timespan, uniquepoints, obsnights, outclust_lowmem2[clusterct].metric, rating, config.MJDref, heliodist[accelct]/AU_KM, heliovel[accelct]/SOLARDAY, helioacc[accelct]*1000.0/SOLARDAY/SOLARDAY, outclust_lowmem2[clusterct].posX, outclust_lowmem2[clusterct].posY, outclust_lowmem2[clusterct].posZ, outclust_lowmem2[clusterct].velX, outclust_lowmem2[clusterct].velY,outclust_lowmem2[clusterct].velZ, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+    outclust.push_back(onecluster);
+  }
+  cout << "Conversion complete for outclust: size is " << outclust.size() << "\n";
+  cout << "Final de-duplicated set contains " << outclust.size() << " linkages totalling " << clust2det.size() << " detections\n";
+  if(automjd) {
+    cout << "Automatically calculated reference MJD was " << config.MJDref << "\n";
+  }
+  return(0);
+}
+
+// ---------------- cross-hypothesis dedup helpers (April 2026) ----------------
+// Small machinery used by both bundled and per-hyp output paths to merge
+// clusters that share an identical detection set across different hypotheses,
+// keeping the lowest-metric (best) representative.  Mirrors the within-hyp
+// dedup logic at form_clusters_kd4_lowmem (~line 37349) but operates after
+// the OMP parallel region, across all hypotheses.  Upstream form_clusters_*
+// already deduplicates within a single hyp, so a given hyp contributes at
+// most one cluster per detection set; cross-hyp dedup picks the best hyp
+// for each unique set.
+
+struct DedupSurvivor {
+  shortclust cluster;       // payload (clusternum will be reassigned at write time)
+  vector<long> detlist;     // detection indices, sorted ascending (canonical for hashing)
+};
+
+// Decide whether candidate cluster 'cand' should replace incumbent 'inc' as
+// the survivor for a given detection-set hash.  HIGHEST metric wins; exact
+// metric ties are broken deterministically by (hypindex, then clusternum).
+//
+// Selection direction (2026-06-03): changed from lowest- to HIGHEST-metric to
+// match link_dedup()/link_dedup_funnel(), which keep the best (highest-metric)
+// representative of each identical detection set.  For a fixed detection set the
+// metric (npts*nnights*timespan/RMS) differs across hypotheses only through the
+// fit RMS, so highest metric == lowest RMS == best-fitting hypothesis.  This
+// makes heliolinc's cross-hypothesis dedup produce the same representative that
+// link_dedup_funnel would, consolidating selection semantics across the
+// pipeline (heliolinc_lowmem_omp / link_planarity_omp / link_purify_chisq_omp).
+// NOTE: this is a deliberate output change vs the legacy lowest-metric behavior
+// (commit c0b6ad9 and earlier); re-run campaigns for run-to-run comparability.
+//
+// The (hypindex, clusternum) tie-break makes the survivor the global argmax over
+// (metric, -hypindex, -clusternum) regardless of the order in which hypotheses
+// are folded, so the dedup result is INDEPENDENT of fold order.  That is what
+// makes the parallel map-reduce + tree-merge below produce byte-identical output
+// regardless of thread count.
+static inline bool dedup_cluster_better(const shortclust& cand, const shortclust& inc)
+{
+  if(cand.metric != inc.metric) return cand.metric > inc.metric;
+  if(cand.hypindex != inc.hypindex) return cand.hypindex < inc.hypindex;
+  return cand.clusternum < inc.clusternum;
+}
+
+// Update a survivor map with one hyp's clusters + their c2d rows.
+// Best (per dedup_cluster_better) cluster wins on hash collision.  blend_vector
+// is the same hash used by the within-hyp dedup; with sorted detlists it
+// compares detection sets exactly (modulo astronomical-rate hash collisions).
+static void dedup_update_one_hyp(const vector<shortclust>& clusters,
+                                 const vector<longpair>& c2d,
+                                 map<long, DedupSurvivor>& survivors)
+{
+  // Group c2d rows by local clusternum (one pass; avoids quadratic lookup)
+  map<long, vector<long>> det_by_cnum;
+  for(long k = 0; k < long(c2d.size()); k++) {
+    det_by_cnum[c2d[k].i1].push_back(c2d[k].i2);
+  }
+  for(long ci = 0; ci < long(clusters.size()); ci++) {
+    long local_cnum = clusters[ci].clusternum;
+    map<long, vector<long>>::iterator dit = det_by_cnum.find(local_cnum);
+    if(dit == det_by_cnum.end()) continue; // cluster with no c2d rows: skip
+    vector<long> dets = dit->second;
+    sort(dets.begin(), dets.end());
+    long h = blend_vector(dets);
+    map<long, DedupSurvivor>::iterator it = survivors.find(h);
+    if(it == survivors.end() || dedup_cluster_better(clusters[ci], it->second.cluster)) {
+      DedupSurvivor s;
+      s.cluster = clusters[ci];
+      s.detlist = std::move(dets);
+      survivors[h] = std::move(s);
+    }
+  }
+}
+
+// Merge survivor map 'src' into 'dst', keeping the better cluster per hash.
+// Order-independent (see dedup_cluster_better), so this is the reduction
+// operator for the parallel per-thread / tree-merge dedup paths.
+static void dedup_merge_into(map<long, DedupSurvivor>& dst,
+                             map<long, DedupSurvivor>& src)
+{
+  for(map<long, DedupSurvivor>::iterator it = src.begin(); it != src.end(); ++it) {
+    map<long, DedupSurvivor>::iterator d = dst.find(it->first);
+    if(d == dst.end() || dedup_cluster_better(it->second.cluster, d->second.cluster)) {
+      dst[it->first] = std::move(it->second);
+    }
+  }
+}
+
+// Deterministic tree reduction over a vector of per-thread survivor maps.
+// Result is left in partials[0]; all other slots are emptied.  Each round
+// halves the number of live maps and merges disjoint index pairs in parallel,
+// so the merge work is itself non-serial.  Determinism is guaranteed by the
+// order-independent reduction operator (dedup_cluster_better).
+static void dedup_tree_merge(vector<map<long, DedupSurvivor>>& partials)
+{
+  long np = long(partials.size());
+  if(np <= 0) return;
+  for(long step = 1; step < np; step *= 2) {
+    long limit = np - step; // OpenMP canonical form needs an invariant bound
+    #pragma omp parallel for schedule(dynamic)
+    for(long j = 0; j < limit; j += 2*step) {
+      dedup_merge_into(partials[j], partials[j+step]);
+      map<long, DedupSurvivor>().swap(partials[j+step]); // free merged-away slot
+    }
+  }
+}
+
+// Write deduped survivors as one bundled (sum, c2d) file pair.
+// Re-derives uniquepoints / timespan / obsnights / rating from detvec.
+static int dedup_write_survivors(const map<long, DedupSurvivor>& survivors,
+                                 const vector<double>& heliodist,
+                                 const vector<double>& heliovel,
+                                 const vector<double>& helioacc,
+                                 const vector<hldet>& detvec,
+                                 double MJDref,
+                                 const string& sumfile_out,
+                                 const string& c2dfile_out)
+{
+  ofstream o1(sumfile_out);
+  if(!o1) { cerr << "ERROR: cannot open deduped sum output file " << sumfile_out << "\n"; return 1; }
+  ofstream o2(c2dfile_out);
+  if(!o2) { cerr << "ERROR: cannot open deduped clust2det output file " << c2dfile_out << "\n"; return 1; }
+  o1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+  o2 << "#clusternum,detnum\n";
+
+  long global_cnum = 0;
+  for(map<long, DedupSurvivor>::const_iterator it = survivors.begin(); it != survivors.end(); ++it) {
+    const DedupSurvivor& s = it->second;
+    const shortclust& c = s.cluster;
+    int hi = c.hypindex;
+    long up = long(s.detlist.size());
+
+    vector<double> mjds;
+    string rating = "PURE";
+    for(long j = 0; j < up; j++) {
+      mjds.push_back(detvec[s.detlist[j]].MJD);
+      if(j > 0 && stringnmatch01(detvec[s.detlist[j]].idstring, detvec[s.detlist[j-1]].idstring, SHORTSTRINGLEN) != 0) rating = "MIXED";
+    }
+    sort(mjds.begin(), mjds.end());
+    double timespan = mjds.empty() ? 0.0 : (mjds.back() - mjds.front());
+    long daysteps = 0;
+    for(long j = 1; j < long(mjds.size()); j++) {
+      if(mjds[j] - mjds[j-1] > NIGHTSTEP) daysteps++;
+    }
+    long obsnights = (up > 0) ? (daysteps + 1) : 0;
+    float velRMS = (c.totRMS > c.posRMS) ? sqrt(c.totRMS*c.totRMS - c.posRMS*c.posRMS) : 0.0f;
+
+    o1 << fixed << setprecision(3) << global_cnum << "," << c.posRMS << "," << velRMS << "," << c.totRMS << ",";
+    o1 << fixed << setprecision(4) << 0.0 << ",";
+    o1 << fixed << setprecision(6) << c.pairnum << "," << timespan << "," << up << "," << obsnights << "," << c.metric << "," << rating << ",";
+    o1 << fixed << setprecision(6) << MJDref << "," << heliodist[hi]/AU_KM << "," << heliovel[hi]/SOLARDAY << "," << helioacc[hi]*1000.0/SOLARDAY/SOLARDAY << ",";
+    o1 << fixed << setprecision(1) << c.posX << "," << c.posY << "," << c.posZ << ",";
+    o1 << fixed << setprecision(4) << c.velX << "," << c.velY << "," << c.velZ << ",";
+    o1 << fixed << setprecision(6) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << ",";
+    o1 << fixed << setprecision(1) << 0.0 << "," << 0.0 << "," << 0.0 << ",";
+    o1 << fixed << setprecision(4) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0 << "\n";
+    for(long j = 0; j < up; j++) o2 << global_cnum << "," << s.detlist[j] << "\n";
+    global_cnum++;
+  }
+  cout << "Deduped output complete. Surviving linkages: " << global_cnum << "\n";
+  cout << "Sum file: " << sumfile_out << "\nClust2det file: " << c2dfile_out << "\n";
+  return 0;
+}
+
+// Parse one per-hypothesis sum file written by heliolinc_alg_omp_lowmem_perhyp.
+// Recovers shortclust fields needed for downstream dedup + bundled rewrite.
+// hyp_idx is supplied by the caller (recovered from filename suffix).
+static int read_perhyp_sum_file(const string& path, long hyp_idx, vector<shortclust>& out)
+{
+  ifstream f(path);
+  if(!f) { cerr << "ERROR: cannot open per-hyp sum file " << path << "\n"; return 1; }
+  out.clear();
+  string line;
+  while(getline(f, line)) {
+    if(line.empty() || line[0] == '#') continue;
+    vector<string> fields;
+    string cur;
+    for(size_t k = 0; k < line.size(); k++) {
+      char ch = line[k];
+      if(ch == ',') { fields.push_back(cur); cur.clear(); }
+      else cur.push_back(ch);
+    }
+    fields.push_back(cur);
+    // Sum file layout (32 fields):
+    //  0:clusternum 1:posRMS 2:velRMS 3:totRMS 4:astromRMS 5:pairnum 6:timespan
+    //  7:uniquepoints 8:obsnights 9:metric 10:rating 11:reference_MJD
+    // 12:heliohyp0 13:heliohyp1 14:heliohyp2
+    // 15:posX 16:posY 17:posZ 18:velX 19:velY 20:velZ ...
+    if(fields.size() < 21) continue;
+    shortclust sc;
+    sc.clusternum = stol(fields[0]);
+    sc.posRMS    = stof(fields[1]);
+    sc.totRMS    = stof(fields[3]);
+    sc.pairnum   = stoi(fields[5]);
+    sc.metric    = stod(fields[9]);
+    sc.hypindex  = int(hyp_idx);
+    sc.posX      = stof(fields[15]);
+    sc.posY      = stof(fields[16]);
+    sc.posZ      = stof(fields[17]);
+    sc.velX      = stof(fields[18]);
+    sc.velY      = stof(fields[19]);
+    sc.velZ      = stof(fields[20]);
+    out.push_back(sc);
+  }
+  return 0;
+}
+
+// Parse one per-hypothesis c2d file written by heliolinc_alg_omp_lowmem_perhyp.
+static int read_perhyp_c2d_file(const string& path, vector<longpair>& out)
+{
+  ifstream f(path);
+  if(!f) { cerr << "ERROR: cannot open per-hyp c2d file " << path << "\n"; return 1; }
+  out.clear();
+  string line;
+  while(getline(f, line)) {
+    if(line.empty() || line[0] == '#') continue;
+    size_t comma = line.find(',');
+    if(comma == string::npos) continue;
+    long cn = stol(line.substr(0, comma));
+    long dn = stol(line.substr(comma+1));
+    out.push_back(longpair(cn, dn));
+  }
+  return 0;
+}
+// -------------- end cross-hypothesis dedup helpers ---------------------------
+
+
+// heliolinc_alg_omp_lowmem_streaming: March 2026, revised April 2026
+// Like heliolinc_alg_omp_lowmem, but uses schedule(dynamic) and accumulates
+// all per-hypothesis cluster results in memory, then writes one bundled output
+// file pair after the parallel region completes. This eliminates the file-storm
+// that occurred when each of ~43k hypotheses opened two files concurrently on
+// GPFS, causing severe metadata contention and I/O-bound thread stalls.
+// Output is one file pair total:
+//   {outsum_prefix}.txt
+//   {clust2det_prefix}.csv
+// If do_dedup is true (the recommended default), cross-hypothesis duplicates
+// are collapsed before writing, keeping the lowest-metric cluster per unique
+// detection set; this typically shrinks the output by 5-20x and reduces
+// downstream link_planarity / link_purify_chisq input volume by the same.
+// If do_dedup is false, all clusters are concatenated verbatim with monotone
+// global clusternums (legacy behavior; cross-hyp dedup is then deferred to
+// link_planarity / link_purify_chisq).
+int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
+{
+  long detnum = detvec.size();
+  if(detnum>=UINT_MAX) {
+    cerr << "ERROR: heliolinc_alg_omp_lowmem_streaming called with too long a detection catalog!\n";
+    cerr << "Catalog contains " << detnum << " detections when no more than " << UINT_MAX-1 << " are allowed\n";
+    return(10);
+  }
+
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+  long accelct=0;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  // Echo config struct
+  cout << "Configuration parameters:\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km\n";
+  cout << "DBSCAN npt: " << config.dbscan_npt << "\n";
+  cout << "Min number of distinct observing nights for a valid linkage: " << config.minobsnights << "\n";
+  cout << "Min time span for a valid linkage: " << config.mintimespan << " days\n";
+  cout << "Min geocentric distance (center of innermost bin): " << config.mingeodist << " AU\n";
+  cout << "Max geocentric distance (will be exceeded by center only of the outermost bin): " << config.maxgeodist << " AU\n";
+  cout << "Logarthmic step size (and bin width) for geocentric distance bins: " << config.geologstep << "\n";
+  cout << "Minimum inferred geocentric distance for a valid tracklet: " << config.mingeoobs << " AU\n";
+  cout << "Minimum inferred impact parameter (w.r.t. Earth) for a valid tracklet: " << config.minimpactpar << " km\n";
+  if(config.verbose) cout << "Verbose output selected\n";
+
+  if(imnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty image catalog\n";
+    return(1);
+  } else if(pairnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty tracklet array\n";
+    return(1);
+  } else if(trk2detnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty trk2det array\n";
+    return(1);
+  } else if(accelnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty heliocentric hypothesis array\n";
+    return(1);
+  }
+
+  // Find MJD range for auto-MJDref
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(long i=0; i<long(detvec.size()); i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cout << "\nERROR: input positive-valued reference MJD is required\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      return(1);
+    } else {
+      cout << "\nUser did not input a positive-valued reference MJD in the\n";
+      cout << "acceptable range, so heliolinc will generate one internally\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << fixed << setprecision(2) << "Adopting reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  // Convert heliocentric radial motion hypothesis matrix to km/day units
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0; accelct<accelnum; accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  if(automjd) {
+    cout << "Reference MJD = " << config.MJDref << "\n";
+  }
+
+  // Pre-compute hypothesis-invariant tracklet projection quantities (Opt 1 + Opt 2)
+  vector<TrackletProjCache> trk_cache;
+  if(use_univar == 2) {
+    precompute_tracklet_proj_cache(image_log, tracklets, trk_cache);
+  }
+
+  // Shared error flag; set nonzero by any thread on fatal error
+  int global_error = 0;
+
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "nthreads = " << nt << "\n";
+  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling\n";
+
+  // Pre-allocate per-hypothesis result buffers (indexed by hypothesis number).
+  // Each thread writes only to its own slot — no mutex needed for the data.
+  // Using structured vectors (not string buffers) avoids 85k file opens on GPFS
+  // that caused severe metadata contention and D-state I/O stalls on the
+  // 42,943-hypothesis grid, while also deferring cluster renumbering to the
+  // serial flush so that global cluster indices are monotone and unique across
+  // all hypotheses (per-hypothesis local indices always restart at 0; writing
+  // them directly to the output file caused the duplicate-clusternum bug fixed here).
+  vector<vector<shortclust>> hyp_sum_bufs(accelnum);  // per-hyp cluster records (local clusternum)
+  vector<vector<longpair>>   hyp_c2d_bufs(accelnum);  // per-hyp clust2det pairs (local clusternum in .i1)
+  vector<long>   hyp_clustcounts(accelnum, 0L); // linkage count per hyp, for logging
+
+  #pragma omp parallel for schedule(dynamic)
+  for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
+    if(global_error) continue; // skip remaining work if a fatal error occurred
+
+    // --- per-thread working storage ---
+    vector <point6ix2> allstatevecs;
+    vector <shortclust> thread_outclust;
+    vector <uint_pair>  thread_clust2det;
+    long thread_realclusternum = 0;
+    int thread_status = 0;
+
+    // --- project tracklets to state vectors ---
+    if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
+      thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else if(use_univar == 2) {
+      // Use pre-computed cache to skip redundant trig/dot-product ops (Opt 1 + Opt 2)
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, trk_cache, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    } else if(use_univar == 3) {
+      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else {
+      thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    }
+    if(thread_status==2) {
+      cerr << "Fatal error from trk2statevec for hypothesis " << thread_accelct << "\n";
+      #pragma omp atomic write
+      global_error = thread_status;
+      continue;
+    }
+
+    // --- cluster state vectors ---
+    if(thread_status==0 && allstatevecs.size()>1) {
+      if(use_univar==6 || use_univar==7) {
+        thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      } else if(use_univar==2 || use_univar==3) {
+        thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      } else if(use_univar==4 || use_univar==5) {
+        thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      } else {
+        thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      }
+      if(thread_status!=0) {
+        cerr << "ERROR: form_clusters exited with error code " << thread_status << " for hypothesis " << thread_accelct << "\n";
+      }
+    }
+
+    // Free state vectors immediately — largest intermediate allocation
+    allstatevecs.clear();
+    allstatevecs.shrink_to_fit();
+
+    // --- convert uint_pair clust2det to longpair for tracklet_lookup ---
+    vector <longpair> thread_clust2det_long;
+    thread_clust2det_long.reserve(thread_clust2det.size());
+    for(long k=0; k<long(thread_clust2det.size()); k++) {
+      thread_clust2det_long.push_back(longpair(long(thread_clust2det[k].i1), long(thread_clust2det[k].i2)));
+    }
+    thread_clust2det.clear();
+    thread_clust2det.shrink_to_fit();
+
+    // --- store structured output in per-hypothesis slots (no file I/O here) ---
+    // Cluster indices are NOT renumbered here; thread_outclust contains
+    // per-hypothesis-local clusternum values (0-based within each hyp).
+    // Global renumbering happens in the serial flush below so that the
+    // concatenated output has monotone, unique cluster indices.
+    hyp_sum_bufs[thread_accelct] = std::move(thread_outclust);
+    hyp_c2d_bufs[thread_accelct] = std::move(thread_clust2det_long);
+
+    hyp_clustcounts[thread_accelct] = thread_realclusternum;
+
+    // Free remaining per-thread allocations before picking up next hypothesis
+    thread_outclust.clear();
+    thread_outclust.shrink_to_fit();
+    thread_clust2det_long.clear();
+    thread_clust2det_long.shrink_to_fit();
+
+    #pragma omp critical
+    {
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_realclusternum << " linkages\n";
+    }
+  } // end parallel for
+
+  if(global_error) return(global_error);
+
+  long total_raw_links = 0;
+  for(long i=0; i<accelnum; i++) total_raw_links += hyp_clustcounts[i];
+
+  string sumfile_out = outsum_prefix    + ".txt";
+  string c2dfile_out = clust2det_prefix + ".csv";
+
+  if(do_dedup) {
+    // --- Cross-hypothesis dedup, then single bundled flush ---
+    // Parallel map-reduce over the in-RAM per-hyp buffers: each thread folds a
+    // dynamically-assigned slice of hyps into a thread-local survivor map, then
+    // the per-thread maps are combined with a deterministic tree merge.  Each
+    // hyp buffer is freed as soon as it has been folded, so peak extra memory
+    // is ~|survivor set| (split across the thread-local maps), matching the old
+    // serial loop's bound.  Output is byte-identical to a serial fold because
+    // dedup_cluster_better makes the reduction order-independent.
+    double t_dedup0 = omp_get_wtime();
+    int dedup_nt = 1;
+    #pragma omp parallel
+    { dedup_nt = omp_get_num_threads(); }
+    cout << "Cross-hypothesis dedup enabled; processing " << total_raw_links
+         << " raw linkages across " << accelnum << " hypotheses on " << dedup_nt << " threads\n";
+
+    vector<map<long, DedupSurvivor>> partials(dedup_nt);
+    #pragma omp parallel
+    {
+      int tid = omp_get_thread_num();
+      map<long, DedupSurvivor>& local = partials[tid];
+      #pragma omp for schedule(dynamic) nowait
+      for(long i=0; i<accelnum; i++) {
+        if(!hyp_sum_bufs[i].empty()) {
+          dedup_update_one_hyp(hyp_sum_bufs[i], hyp_c2d_bufs[i], local);
+        }
+        // Free this hyp's buffers now to keep peak memory bounded.
+        vector<shortclust>().swap(hyp_sum_bufs[i]);
+        vector<longpair>().swap(hyp_c2d_bufs[i]);
+      }
+    }
+    dedup_tree_merge(partials);
+    map<long, DedupSurvivor>& survivors = partials[0];
+
+    long survivor_count = long(survivors.size());
+    double t_dedup1 = omp_get_wtime();
+    if(total_raw_links > 0) {
+      cout << "Dedup kept " << survivor_count << " of " << total_raw_links << " raw linkages ("
+           << fixed << setprecision(1) << (100.0*survivor_count/double(total_raw_links)) << "%)\n";
+    }
+    cout << "Parallel dedup merge wall time: " << fixed << setprecision(2)
+         << (t_dedup1 - t_dedup0) << " s\n";
+    int wstat = dedup_write_survivors(survivors, heliodist, heliovel, helioacc, detvec, config.MJDref, sumfile_out, c2dfile_out);
+    if(wstat != 0) return wstat;
+    return 0;
+  }
+
+  // --- Legacy path: bundled flush with no cross-hyp dedup ---
+  // Two open() calls total regardless of hypothesis count.
+  // Output file names use the prefix directly (no per-hyp suffix).
+  //
+  // KEY INVARIANT: per-hypothesis local clusternum values restart at 0 for
+  // every hypothesis.  We assign a globally unique, monotonically increasing
+  // clusternum here using global_cnum, incrementing once per cluster across
+  // all hypotheses in order.  The same global_cnum is used for both the sum
+  // row and the corresponding c2d rows (identified by matching local
+  // clusternum in .i1), guaranteeing consistency.
+  ofstream outstream1(sumfile_out);
+  if(!outstream1) {
+    cerr << "ERROR: cannot open bundled sum output file " << sumfile_out << "\n";
+    return(1);
+  }
+  ofstream outstream2(c2dfile_out);
+  if(!outstream2) {
+    cerr << "ERROR: cannot open bundled clust2det output file " << c2dfile_out << "\n";
+    return(1);
+  }
+
+  outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+  outstream2 << "#clusternum,detnum\n";
+
+  cout << "Writing bundled output files (no cross-hyp dedup): " << sumfile_out << ", " << c2dfile_out << "\n";
+
+  long global_cnum = 0; // monotone global cluster index across all hypotheses
+
+  for(long i=0; i<accelnum; i++) {
+    const vector<shortclust> &hyp_clusts  = hyp_sum_bufs[i];
+    const vector<longpair>   &hyp_c2d     = hyp_c2d_bufs[i];
+
+    for(long clusterct=0; clusterct<long(hyp_clusts.size()); clusterct++) {
+      long local_cnum = hyp_clusts[clusterct].clusternum;
+
+      // --- derive fields that shortclust doesn't store (same logic as OMP section) ---
+      vector <long> clustind = tracklet_lookup(hyp_c2d, local_cnum);
+      long uniquepoints = clustind.size();
+      vector <double> clustmjd;
+      string rating = "PURE";
+      for(long j=0; j<uniquepoints; j++) {
+        clustmjd.push_back(detvec[clustind[j]].MJD);
+        if(j>0 && stringnmatch01(detvec[clustind[j]].idstring, detvec[clustind[j-1]].idstring, SHORTSTRINGLEN)!=0) rating="MIXED";
+      }
+      sort(clustmjd.begin(), clustmjd.end());
+      double timespan = clustmjd[clustmjd.size()-1] - clustmjd[0];
+      long daysteps = 0;
+      for(long j=1; j<long(clustmjd.size()); j++) {
+        if(clustmjd[j]-clustmjd[j-1] > NIGHTSTEP) daysteps++;
+      }
+      long obsnights = daysteps + 1;
+      float posRMS = hyp_clusts[clusterct].posRMS;
+      float totRMS = hyp_clusts[clusterct].totRMS;
+      float velRMS = (totRMS>posRMS) ? sqrt(totRMS*totRMS - posRMS*posRMS) : 0.0f;
+
+      // --- write sum row with global_cnum (not local_cnum) ---
+      outstream1 << fixed << setprecision(3) << global_cnum << "," << posRMS << "," << velRMS << "," << totRMS << ",";
+      outstream1 << fixed << setprecision(4) << 0.0 << ","; // astromRMS not available in lowmem
+      outstream1 << fixed << setprecision(6) << hyp_clusts[clusterct].pairnum << "," << timespan << "," << uniquepoints << "," << obsnights << "," << hyp_clusts[clusterct].metric << "," << rating << ",";
+      outstream1 << fixed << setprecision(6) << config.MJDref << "," << heliodist[i]/AU_KM << "," << heliovel[i]/SOLARDAY << "," << helioacc[i]*1000.0/SOLARDAY/SOLARDAY << ",";
+      outstream1 << fixed << setprecision(1) << hyp_clusts[clusterct].posX << "," << hyp_clusts[clusterct].posY << "," << hyp_clusts[clusterct].posZ << ",";
+      outstream1 << fixed << setprecision(4) << hyp_clusts[clusterct].velX << "," << hyp_clusts[clusterct].velY << "," << hyp_clusts[clusterct].velZ << ",";
+      outstream1 << fixed << setprecision(6) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << ","; // orbit fields not available in lowmem
+      outstream1 << fixed << setprecision(1) << 0.0 << "," << 0.0 << "," << 0.0 << ",";
+      outstream1 << fixed << setprecision(4) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0 << "\n";
+
+      // --- write c2d rows: replace local_cnum with global_cnum in .i1 ---
+      for(long k=0; k<long(hyp_c2d.size()); k++) {
+        if(hyp_c2d[k].i1 == local_cnum) {
+          outstream2 << global_cnum << "," << hyp_c2d[k].i2 << "\n";
+        }
+      }
+
+      global_cnum++;
+    }
+  }
+
+  cout << "Bundled output complete (no dedup). Total linkages across all hypotheses: " << total_raw_links << "\n";
+  cout << "Sum file: " << sumfile_out << "\nClust2det file: " << c2dfile_out << "\n";
+
+  return(0);
+}
+
+
+// heliolinc_alg_omp_lowmem_perhyp: streaming-per-hypothesis variant.
+// Each hypothesis writes its own pair of small output files immediately on
+// completion, freeing per-thread memory before picking up the next hypothesis.
+// This trades GPFS metadata pressure (2*accelnum file opens) for bounded
+// resident memory — needed when accumulating millions of pre-purify clusters
+// across all hypotheses (e.g. LSST-scale untrailed runs) would otherwise
+// blow the per-job memory budget during the parallel region.
+//
+// Per-hyp intermediate files:
+//   {outsum_prefix}_{N}.txt  and  {clust2det_prefix}_{N}.csv
+//
+// If do_dedup is true (the recommended default), a serial post-parallel pass
+// reads each per-hyp file pair back, performs cross-hypothesis dedup against
+// a single in-RAM survivor map (peak memory ≈ |deduped survivor set|, not
+// |raw cluster set|), and writes a single bundled deduped output pair:
+//   {outsum_prefix}.txt  and  {clust2det_prefix}.csv
+// Downstream link_purify_chisq is then given a single-entry lflist pointing
+// at this deduped pair.
+//
+// If do_dedup is false, the per-hyp files stand as the final output (legacy
+// pre-bundle layout); downstream lflist must enumerate all per-hyp pairs.
+//
+// For trailed and other low-cluster-volume runs prefer the bundled variant
+// heliolinc_alg_omp_lowmem_streaming(), which avoids the per-hyp file storm
+// entirely.
+int heliolinc_alg_omp_lowmem_perhyp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
+{
+  long detnum = detvec.size();
+  if(detnum>=UINT_MAX) {
+    cerr << "ERROR: heliolinc_alg_omp_lowmem_perhyp called with too long a detection catalog!\n";
+    cerr << "Catalog contains " << detnum << " detections when no more than " << UINT_MAX-1 << " are allowed\n";
+    return(10);
+  }
+
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+  long accelct=0;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  // Echo config struct
+  cout << "Configuration parameters:\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km\n";
+  cout << "DBSCAN npt: " << config.dbscan_npt << "\n";
+  cout << "Min number of distinct observing nights for a valid linkage: " << config.minobsnights << "\n";
+  cout << "Min time span for a valid linkage: " << config.mintimespan << " days\n";
+  cout << "Min geocentric distance (center of innermost bin): " << config.mingeodist << " AU\n";
+  cout << "Max geocentric distance (will be exceeded by center only of the outermost bin): " << config.maxgeodist << " AU\n";
+  cout << "Logarthmic step size (and bin width) for geocentric distance bins: " << config.geologstep << "\n";
+  cout << "Minimum inferred geocentric distance for a valid tracklet: " << config.mingeoobs << " AU\n";
+  cout << "Minimum inferred impact parameter (w.r.t. Earth) for a valid tracklet: " << config.minimpactpar << " km\n";
+  if(config.verbose) cout << "Verbose output selected\n";
+
+  if(imnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty image catalog\n";
+    return(1);
+  } else if(pairnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty tracklet array\n";
+    return(1);
+  } else if(trk2detnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty trk2det array\n";
+    return(1);
+  } else if(accelnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty heliocentric hypothesis array\n";
+    return(1);
+  }
+
+  // Find MJD range for auto-MJDref
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(long i=0; i<long(detvec.size()); i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cout << "\nERROR: input positive-valued reference MJD is required\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      return(1);
+    } else {
+      cout << "\nUser did not input a positive-valued reference MJD in the\n";
+      cout << "acceptable range, so heliolinc will generate one internally\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << fixed << setprecision(2) << "Adopting reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  // Convert heliocentric radial motion hypothesis matrix to km/day units
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0; accelct<accelnum; accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  if(automjd) {
+    cout << "Reference MJD = " << config.MJDref << "\n";
+  }
+
+  // Pre-compute hypothesis-invariant tracklet projection quantities (Opt 1 + Opt 2)
+  vector<TrackletProjCache> trk_cache;
+  if(use_univar == 2) {
+    precompute_tracklet_proj_cache(image_log, tracklets, trk_cache);
+  }
+
+  // Shared error flag; set nonzero by any thread on fatal error
+  int global_error = 0;
+
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "nthreads = " << nt << "\n";
+  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling (per-hyp streaming output)\n";
+
+  #pragma omp parallel for schedule(dynamic)
+  for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
+    if(global_error) continue; // skip remaining work if a fatal error occurred
+
+    // --- RESUME SUPPORT: skip if both per-hyp files already exist ---
+    // Files are written via .tmp + rename at the end of this iteration, so
+    // presence of the final-named file means the previous run completed
+    // this hypothesis cleanly. Allows ckpt-g2 jobs to resume after preemption.
+    {
+      string sf_check = outsum_prefix    + "_" + to_string(thread_accelct) + ".txt";
+      string cf_check = clust2det_prefix + "_" + to_string(thread_accelct) + ".csv";
+      ifstream t1(sf_check.c_str());
+      ifstream t2(cf_check.c_str());
+      if(t1.good() && t2.good()) {
+        #pragma omp critical
+        { cout << "Hypothesis " << thread_accelct << ": resume-skip (output exists)\n"; }
+        continue;
+      }
+    }
+
+    // --- per-thread working storage ---
+    vector <point6ix2> allstatevecs;
+    vector <shortclust> thread_outclust;
+    vector <uint_pair>  thread_clust2det;
+    long thread_realclusternum = 0;
+    int thread_status = 0;
+
+    // --- project tracklets to state vectors ---
+    if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
+      thread_status = trk2statevec_univar(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else if(use_univar == 2) {
+      thread_status = trk2statevec_fgfuncRR(image_log, tracklets, trk_cache, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    } else if(use_univar == 3) {
+      thread_status = trk2statevec_univarRR(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else {
+      thread_status = trk2statevec_fgfunc(image_log, tracklets, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    }
+    if(thread_status==2) {
+      cerr << "Fatal error from trk2statevec for hypothesis " << thread_accelct << "\n";
+      #pragma omp atomic write
+      global_error = thread_status;
+      continue;
+    }
+
+    // --- cluster state vectors ---
+    if(thread_status==0 && allstatevecs.size()>1) {
+      if(use_univar==6 || use_univar==7) {
+        thread_status = form_clusters_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      } else if(use_univar==2 || use_univar==3) {
+        thread_status = form_clusters_RR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      } else if(use_univar==4 || use_univar==5) {
+        thread_status = form_clusters_kdR_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      } else {
+        thread_status = form_clusters_kd4_lowmem(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_accelct, chartimescale, thread_outclust, thread_clust2det, thread_realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+      }
+      if(thread_status!=0) {
+        cerr << "ERROR: form_clusters exited with error code " << thread_status << " for hypothesis " << thread_accelct << "\n";
+      }
+    }
+
+    // Free state vectors immediately — largest intermediate allocation
+    allstatevecs.clear();
+    allstatevecs.shrink_to_fit();
+
+    // --- convert uint_pair clust2det to longpair for tracklet_lookup ---
+    vector <longpair> thread_clust2det_long;
+    thread_clust2det_long.reserve(thread_clust2det.size());
+    for(long k=0; k<long(thread_clust2det.size()); k++) {
+      thread_clust2det_long.push_back(longpair(long(thread_clust2det[k].i1), long(thread_clust2det[k].i2)));
+    }
+    thread_clust2det.clear();
+    thread_clust2det.shrink_to_fit();
+
+    // --- write output files via .tmp + rename for resume safety ---
+    // If preempted mid-write, only the .tmp variant exists; on restart the
+    // resume check above sees no final file and re-runs the hypothesis.
+    string sumfile_hyp = outsum_prefix    + "_" + to_string(thread_accelct) + ".txt";
+    string c2dfile_hyp = clust2det_prefix + "_" + to_string(thread_accelct) + ".csv";
+    string sumfile_tmp = sumfile_hyp + ".tmp";
+    string c2dfile_tmp = c2dfile_hyp + ".tmp";
+
+    {
+      ofstream outstream1(sumfile_tmp);
+      outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+      for(long clusterct=0; clusterct<long(thread_outclust.size()); clusterct++) {
+        // Derive fields that shortclust doesn't store directly
+        vector <long> clustind = tracklet_lookup(thread_clust2det_long, long(thread_outclust[clusterct].clusternum));
+        long uniquepoints = clustind.size();
+        vector <double> clustmjd;
+        string rating = "PURE";
+        for(long j=0; j<uniquepoints; j++) {
+          clustmjd.push_back(detvec[clustind[j]].MJD);
+          if(j>0 && stringnmatch01(detvec[clustind[j]].idstring, detvec[clustind[j-1]].idstring, SHORTSTRINGLEN)!=0) rating="MIXED";
+        }
+        sort(clustmjd.begin(), clustmjd.end());
+        double timespan = clustmjd[clustmjd.size()-1] - clustmjd[0];
+        long daysteps = 0;
+        for(long j=1; j<long(clustmjd.size()); j++) {
+          if(clustmjd[j]-clustmjd[j-1] > NIGHTSTEP) daysteps++;
+        }
+        long obsnights = daysteps + 1;
+        float posRMS = thread_outclust[clusterct].posRMS;
+        float totRMS = thread_outclust[clusterct].totRMS;
+        float velRMS = (totRMS>posRMS) ? sqrt(totRMS*totRMS - posRMS*posRMS) : 0.0f;
+        outstream1 << fixed << setprecision(3) << thread_outclust[clusterct].clusternum << "," << posRMS << "," << velRMS << "," << totRMS << ",";
+        outstream1 << fixed << setprecision(4) << 0.0 << ","; // astromRMS not available in lowmem
+        outstream1 << fixed << setprecision(6) << thread_outclust[clusterct].pairnum << "," << timespan << "," << uniquepoints << "," << obsnights << "," << thread_outclust[clusterct].metric << "," << rating << ",";
+        outstream1 << fixed << setprecision(6) << config.MJDref << "," << heliodist[thread_accelct]/AU_KM << "," << heliovel[thread_accelct]/SOLARDAY << "," << helioacc[thread_accelct]*1000.0/SOLARDAY/SOLARDAY << ",";
+        outstream1 << fixed << setprecision(1) << thread_outclust[clusterct].posX << "," << thread_outclust[clusterct].posY << "," << thread_outclust[clusterct].posZ << ",";
+        outstream1 << fixed << setprecision(4) << thread_outclust[clusterct].velX << "," << thread_outclust[clusterct].velY << "," << thread_outclust[clusterct].velZ << ",";
+        outstream1 << fixed << setprecision(6) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0.0 << ","; // orbit fields not available in lowmem
+        outstream1 << fixed << setprecision(1) << 0.0 << "," << 0.0 << "," << 0.0 << ",";
+        outstream1 << fixed << setprecision(4) << 0.0 << "," << 0.0 << "," << 0.0 << "," << 0 << "\n";
+      }
+    }
+
+    {
+      ofstream outstream2(c2dfile_tmp);
+      outstream2 << "#clusternum,detnum\n";
+      for(long k=0; k<long(thread_clust2det_long.size()); k++) {
+        outstream2 << thread_clust2det_long[k].i1 << "," << thread_clust2det_long[k].i2 << "\n";
+      }
+    }
+
+    // Atomically promote .tmp -> final names. C++ rename(2) is atomic on POSIX.
+    if(std::rename(sumfile_tmp.c_str(), sumfile_hyp.c_str()) != 0) {
+      cerr << "ERROR: rename " << sumfile_tmp << " -> " << sumfile_hyp << " failed\n";
+    }
+    if(std::rename(c2dfile_tmp.c_str(), c2dfile_hyp.c_str()) != 0) {
+      cerr << "ERROR: rename " << c2dfile_tmp << " -> " << c2dfile_hyp << " failed\n";
+    }
+
+    // Free remaining per-thread allocations before picking up next hypothesis
+    thread_outclust.clear();
+    thread_outclust.shrink_to_fit();
+    thread_clust2det_long.clear();
+    thread_clust2det_long.shrink_to_fit();
+
+    #pragma omp critical
+    {
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_realclusternum << " linkages -> " << sumfile_hyp << "\n";
+    }
+  } // end parallel for
+
+  if(global_error) return(global_error);
+
+  if(!do_dedup) {
+    // Per-hyp files are the final product; nothing more to do.
+    return(0);
+  }
+
+  // --- Parallel post-parallel cross-hypothesis dedup pass ---
+  // The legacy version folded all accelnum per-hyp file pairs into one survivor
+  // map serially.  At LSST/ATLAS hypothesis-grid scale (10^3-10^4 hyps, tens of
+  // GB of per-hyp c2d files) that serial read+fold became the dominant tail of
+  // every streaming run.  We now do a map-reduce: each thread reads a
+  // dynamically-assigned slice of hyps and folds them into a thread-LOCAL
+  // survivor map (parallelizing both the GPFS read I/O and the hashing), then
+  // the per-thread maps are combined with a deterministic parallel tree merge.
+  // This generalizes the "dedup 420 sets of 100, then dedup the 420 results"
+  // idea: dynamic scheduling at per-hyp granularity gives optimal load balance
+  // while keeping the number of partial maps == nthreads, so the final merge is
+  // cheap.  Output is byte-identical to the serial fold (dedup_cluster_better
+  // makes the reduction order-independent).
+  // Peak memory is ~|survivor set| (sum of partials ~ deduped set), not the raw
+  // cluster set, since each per-hyp temp is freed as soon as it is folded.
+  double t_dedup0 = omp_get_wtime();
+  int dedup_nt = 1;
+  #pragma omp parallel
+  { dedup_nt = omp_get_num_threads(); }
+  cout << "\nStarting PARALLEL cross-hypothesis dedup pass over " << accelnum
+       << " per-hyp file pairs on " << dedup_nt << " threads\n";
+
+  vector<map<long, DedupSurvivor>> partials(dedup_nt);
+  vector<long> raw_per_thread(dedup_nt, 0);
+  vector<long> files_per_thread(dedup_nt, 0);
+
+  #pragma omp parallel
+  {
+    int tid = omp_get_thread_num();
+    map<long, DedupSurvivor>& local = partials[tid];
+    long local_raw = 0;
+    long local_files = 0;
+    #pragma omp for schedule(dynamic) nowait
+    for(long i=0; i<accelnum; i++) {
+      string sf = outsum_prefix    + "_" + to_string(i) + ".txt";
+      string cf = clust2det_prefix + "_" + to_string(i) + ".csv";
+      vector<shortclust> clusters;
+      vector<longpair>   c2d;
+      // Note: read_perhyp_*_file emit an ERROR line on a genuinely missing file.
+      // In normal full runs every hyp pair exists; gaps (e.g. resume) are
+      // tolerated by the continue below and are not fatal.
+      if(read_perhyp_sum_file(sf, i, clusters) != 0) continue;
+      if(read_perhyp_c2d_file(cf, c2d) != 0) continue;
+      local_files++;
+      local_raw += long(clusters.size());
+      if(!clusters.empty()) {
+        dedup_update_one_hyp(clusters, c2d, local);
+      }
+      // clusters/c2d freed at loop-iteration scope exit -> peak RAM bounded
+    }
+    raw_per_thread[tid]   = local_raw;
+    files_per_thread[tid] = local_files;
+  }
+
+  long total_raw_links = 0;
+  long files_read = 0;
+  for(int t=0; t<dedup_nt; t++) { total_raw_links += raw_per_thread[t]; files_read += files_per_thread[t]; }
+
+  // Combine per-thread survivor maps -> partials[0]
+  dedup_tree_merge(partials);
+  map<long, DedupSurvivor>& survivors = partials[0];
+
+  long survivor_count = long(survivors.size());
+  double t_dedup1 = omp_get_wtime();
+  cout << "Read " << files_read << " per-hyp file pairs; " << total_raw_links << " raw linkages\n";
+  if(total_raw_links > 0) {
+    cout << "Dedup kept " << survivor_count << " of " << total_raw_links << " raw linkages ("
+         << fixed << setprecision(1) << (100.0*survivor_count/double(total_raw_links)) << "%)\n";
+  }
+  cout << "Parallel dedup read+merge wall time: " << fixed << setprecision(2)
+       << (t_dedup1 - t_dedup0) << " s\n";
+  string sumfile_out = outsum_prefix    + ".txt";
+  string c2dfile_out = clust2det_prefix + ".csv";
+  int wstat = dedup_write_survivors(survivors, heliodist, heliovel, helioacc, detvec, config.MJDref, sumfile_out, c2dfile_out);
+  if(wstat != 0) return wstat;
+
+  // --- Remove the per-hyp intermediate files now that the bundled deduped pair
+  //     is safely written.  Gated on wstat==0 above: if the bundle write had
+  //     failed we return early and LEAVE the per-hyp files in place so the run
+  //     can be resumed ("skip if both per-hyp files already exist").  Only the
+  //     dedup (do_dedup) path reaches here; when do_dedup is false the per-hyp
+  //     files are the final product and we already returned without deleting.
+  long removed = 0;
+  for(long i=0; i<accelnum; i++) {
+    string sf = outsum_prefix    + "_" + to_string(i) + ".txt";
+    string cf = clust2det_prefix + "_" + to_string(i) + ".csv";
+    if(remove(sf.c_str()) == 0) removed++;   // tolerate already-absent (resume gaps)
+    if(remove(cf.c_str()) == 0) removed++;
+  }
+  cout << "Removed " << removed << " per-hyp intermediate files (" << accelnum
+       << " hyp pairs) after bundle write\n";
+
+  return(0);
+}
+
+
+// link_planarity_omp: OpenMP-parallel per-cluster variant of
+// link_planarity(). Ported verbatim from commit 20a4926.  The
+// wrapper link_planarity_omp.cpp calls this per input cluster-file
+// pair and streams survivors so peak memory is O(one file) rather
+// than O(all files).
+int link_planarity_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det)
+{
+  vector <hlclust> inclust;
+  vector  <longpair> inclust2det;
+  long i=0;
+  long imnum = image_log.size();
+  long detnum = detvec.size();
+  long inclustnum = inclust1.size();
+  vector <int> detusedvec = {};
+  vector <vector <hlclust>> holdclust_mat;
+  vector <vector <vector <long>>> clustindmat_mat;
+  vector <int> error_cases;
+  vector <hlclust> holdclust;
+  vector <vector <long>> clustindmat;
+  vector <double_index> metric_index;
+  long clusterct,clusterct2,goodclusternum,threadct;
+  clusterct = clusterct2 = goodclusternum = threadct = 0;
+  double_index dindex = double_index(0l,0);
+  vector <double_index> sortclust;
+  longpair c2d = longpair(0,0);
+  int status=1;
+
+  make_ivec(detnum, detusedvec);
+
+  holdclust={};
+  clustindmat={};
+  outclust={};
+  outclust2det={};
+
+  cout << "Launching link_planarity_omp()\n";
+  cout << "Maximum RMS in km: " << config.maxrms << "\n";
+  cout << "Maximum out-of-plane RMS in km: " << config.max_oop << "\n";
+  if(config.useorbMJD>0) cout << "Epoch-of-orbit MJD will be used as MJDref, if available.\n";
+  else  cout << "Old reference MJD from heliolinc will be used as MJDref\n";
+  if(config.ptpow>=0 && config.nightpow>=0) {
+    cout << "In calculating the cluster quality metric, the number of\nunique points will be raised to the power of " << config.ptpow << " and\n";
+    cout << "the number of unique nights will be raised to the power of " << config.nightpow << ".\n";
+  } else {
+    cout << "Because the cluster-metric exponent for the number of unique points (which is set to " << config.ptpow << ") and/or\n";
+    cout << "the corresponding exponent for the number of unique nights (which is set to " << config.nightpow << ") is negative,\n";
+    cout << "a special (and recommended) case is triggered in which the cluster metric\n";
+    cout << "will be the product of the numbers of unique detections on every night that had some detections.\n";
+    cout << "E.g., an object observed twice per night on three nights would get a metric of 2*2*2 = 8.\n";
+  }
+  cout << "The total timespan will be raised to the power of " << config.timepow << ";\n";
+  cout << "and the astrometric RMS will be raised to the power of (negative) " << config.rmspow << "\n";
+  if(config.verbose>=1) cout << "verbose output has been selected\n";
+  if(config.use_heliovane==1) cout << "Using heliovane parameterization\n";
+
+  // Cull out exact duplicates using link_dedup().
+  status = link_dedup(inclust1, inclust2det1, inclust, inclust2det);
+  if(status!=0) {
+    cerr << "ERROR: link_dedup returned status " << status << "\n";
+    cerr << "link_planarity_omp aborting\n";
+    return(status);
+  }
+  inclustnum = inclust.size();
+  cout << "Duplicate-culled cluster summary vector has length " << inclustnum << "\n";
+
+  // Set up per-thread storage
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "nthreads = " << nt << "\n";
+
+  {
+    vector <hlclust> ov1;
+    vector <vector <long>> ov2;
+    for(threadct=0; threadct<nt; threadct++) {
+      ov1={};
+      ov2={};
+      holdclust_mat.push_back(ov1);
+      clustindmat_mat.push_back(ov2);
+      error_cases.push_back(0);
+    }
+  }
+
+  #pragma omp parallel
+  {
+    int ithread = omp_get_thread_num();
+    long inclustct=0;
+    double clustmetric = 0.0l;
+    hlclust onecluster = hlclust(0, 0.0l, 0.0l, 0.0l, 0.0l, 0, 0.0l, 0, 0, 0.0l, "NULL", 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0);
+    vector <double> statevec;
+    vector <long> clustind;
+    vector <hldet> clusterdets;
+    vector <hldet> clusterdets2;
+    int ptnum,ptct,istimedup,istimedup2,detsused,rejnum,badcluster,bothcases,wp;
+    long rejmax,daysteps,obsnights;
+    ptnum=ptct=istimedup=istimedup2=detsused=rejnum=badcluster=bothcases=wp=0;
+    daysteps=obsnights=0;
+    double wresid=0.0l;
+    point3d onepoint = point3d(0.0L,0.0L,0.0L);
+    point3d observernow = point3d(0.0L,0.0L,0.0L);
+    point3d unitbary = point3d(0.0L,0.0L,0.0L);
+    point3d polepos = point3d(0.0L,0.0L,0.0L);
+    vector <point3d> observerpos;
+    vector <double> obsMJD, obsRA, obsDec, sigastrom, fitRA, fitDec, resid, orbit, mjdstep;
+    double geodist1,geodist2, astromrms, chisq;
+    double ftol = FTOL_HERGET_SIMPLEX;
+    double simplex_scale = SIMPLEX_SCALEFAC;
+    double X, Y, Z, dt;
+    X = Y = Z = dt = 0l;
+    point3d startpos = point3d(0.0l,0.0l,0.0l);
+    point3d startvel = point3d(0.0l,0.0l,0.0l);
+    point3d endpos = point3d(0.0l,0.0l,0.0l);
+    point3d endvel = point3d(0.0l,0.0l,0.0l);
+    vector <double> heliodistvec;
+    vector <double> lambdavec;
+    double delta1 = 0.0l;
+    vector <double> planeout1;
+    vector <double> planeout2;
+    double normout1 = 0.0l;
+    double normout2 = 0.0l;
+    vector <double> deltavec;
+    vector <point3d> targposvec;
+    vector <point3d> heliopos1;
+    vector <point3d> heliopos2;
+    double heliodist, heliovel, helioacc, lambda0, lambda_dot, lambda_ddot;
+    heliodist = heliovel = helioacc = lambda0 = lambda_dot = lambda_ddot = 0.0l;
+    double min_proj_sine = 0.0l;
+    long imct=0;
+    int kepfail=0;
+    int thread_status=0;
+    long i=0; // thread-private loop variable (shared i at function scope is a data race)
+
+    int status1=0; // for Keplerian integration return codes
+
+    // Dynamic schedule (chunk=32): per-cluster cost varies widely
+    // (RMS-reject early-out vs full Keplerian+Herget simplex; bothcases
+    // doubles work). Static contiguous partition left threads idle when
+    // expensive clusters bunched together. Per-thread accumulators below
+    // are indexed by ithread and require no locking. NOTE: output order
+    // in holdclust_mat is no longer monotone in inclustct under dynamic
+    // scheduling; downstream consumers must not rely on input ordering.
+    #pragma omp for schedule(dynamic, 32) nowait
+    for(inclustct=0; inclustct<inclustnum; inclustct++) {
+      onecluster = inclust[inclustct];
+      obsnights = onecluster.obsnights;
+      if(inclustct!=onecluster.clusternum) {
+        cerr << "ERROR: cluster index mismatch " << inclustct << " != " << onecluster.clusternum << " at input cluster " << inclustct << "\n";
+        error_cases[ithread] = 5;
+      }
+      // Load a vector with the indices to detvec
+      clustind.clear();
+      clustind = tracklet_lookup(inclust2det, onecluster.clusternum);
+      ptnum = clustind.size();
+      if(ptnum!=onecluster.uniquepoints) {
+        cerr << "ERROR: point number mismatch " << ptnum << " != " << onecluster.uniquepoints << " at input cluster " << inclustct << "\n";
+        error_cases[ithread] = 6;
+      }
+      if(onecluster.totRMS > config.maxrms && onecluster.obsnights>=config.minobsnights && onecluster.uniquepoints>=config.minpointnum) {
+        if(config.verbose>=1) cout << "Thread " << ithread << " cluster " << inclustct << " of " << inclustnum << ": RMS = " << onecluster.totRMS << "km is too high: REJECTED.\n";
+        continue;
+      }
+      // If we get here, the cluster passes the initial cut. Analyze it.
+      badcluster=0;
+      clusterdets.clear(); clusterdets2.clear();
+      for(i=0; i<ptnum; i++) {
+        clusterdets.push_back(detvec[clustind[i]]);
+        clusterdets[i].index=clustind[i];
+      }
+      sort(clusterdets.begin(), clusterdets.end(), early_hldet());
+      istimedup=0;
+      for(ptct=1; ptct<ptnum; ptct++) {
+        if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+      }
+
+      // PLANARITY CHECK — identical logic to link_planarity()
+      heliopos1.clear();
+      heliopos2.clear();
+      heliodistvec.clear();
+      bothcases=0;
+      if(config.use_heliovane!=1) {
+        // heliolinc branch: compute heliocentric distance at each point, then project
+        heliodist = onecluster.heliohyp0;
+        heliovel = onecluster.heliohyp1;
+        helioacc = onecluster.heliohyp2;
+        if(config.useorbMJD==1 && onecluster.orbit_MJD>0.0) {
+          // Taylor Series using orbit-epoch MJD
+          for(ptct=0; ptct<ptnum; ptct++) {
+            delta1 = (clusterdets[ptct].MJD - onecluster.orbit_MJD)*SOLARDAY;
+            heliodistvec.push_back(heliodist*AU_KM + heliovel*delta1 + 0.5*helioacc*delta1*delta1/1000.0l);
+          }
+        } else if(config.useorbMJD==-1) {
+          // Taylor Series using reference MJD
+          for(ptct=0; ptct<ptnum; ptct++) {
+            delta1 = (clusterdets[ptct].MJD - onecluster.reference_MJD)*SOLARDAY;
+            heliodistvec.push_back(heliodist*AU_KM + heliovel*delta1 + 0.5*helioacc*delta1*delta1/1000.0l);
+          }
+        } else if(config.useorbMJD==2 && onecluster.orbit_MJD>0.0) {
+          // Keplerian r(t) using orbit-epoch MJD
+          double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist*AU_KM);
+          double physacc = helioacc/1000.0l;
+          double tanvel = heliodist*AU_KM*(physacc+localg);
+          if(tanvel<0.0l) { continue; } // unphysical hypothesis
+          tanvel = sqrt(tanvel);
+          startpos = point3d(heliodist*AU_KM,0l,0l);
+          startvel = point3d(heliovel,tanvel,0l);
+          endpos = point3d(0l,0l,0l); endvel = point3d(0l,0l,0l);
+          kepfail=0;
+          for(ptct=0; ptct<ptnum; ptct++) {
+            status1 = Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, clusterdets[ptct].MJD, endpos, endvel, config.verbose);
+            if(status1!=0) { kepfail=1; cerr << "ERROR: Keplerian integration failed for cluster " << inclustct << "\n"; }
+            heliodistvec.push_back(vecabs3d(endpos));
+          }
+          if(kepfail!=0) continue;
+        } else {
+          // Default: Keplerian r(t) using reference MJD
+          double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist*AU_KM);
+          double physacc = helioacc/1000.0l;
+          double tanvel = heliodist*AU_KM*(physacc+localg);
+          if(tanvel<0.0l) { continue; } // unphysical hypothesis
+          tanvel = sqrt(tanvel);
+          startpos = point3d(heliodist*AU_KM,0l,0l);
+          startvel = point3d(heliovel,tanvel,0l);
+          endpos = point3d(0l,0l,0l); endvel = point3d(0l,0l,0l);
+          kepfail=0;
+          for(ptct=0; ptct<ptnum; ptct++) {
+            status1 = Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, clusterdets[ptct].MJD, endpos, endvel, config.verbose);
+            if(status1==0) heliodistvec.push_back(vecabs3d(endpos));
+            else { kepfail=1; cerr << "ERROR: Keplerian integration failed for r(t) hypothesis, cluster " << inclustct << "\n"; }
+          }
+          if(kepfail!=0) continue;
+        }
+        // Project observations onto the heliocentric sphere
+        heliopos1.clear();
+        heliopos2.clear();
+        for(ptct=0; ptct<ptnum; ptct++) {
+          imct = clusterdets[ptct].image;
+          if(imct>=imnum) {
+            cerr << "ERROR: attempting to access image " << imct << " of only " << imnum << " available\n";
+            error_cases[ithread] = 8;
+            break;
+          }
+          observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
+          celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
+          targposvec.clear();
+          deltavec.clear();
+          thread_status = helioproj02(unitbary, observernow, heliodistvec[ptct], deltavec, targposvec);
+          if(thread_status==1 || thread_status==2) {
+            heliopos1.push_back(targposvec[0]);
+            if(thread_status==2) heliopos2.push_back(targposvec[1]);
+          } else {
+            cerr << "ERROR: in link_planarity_omp, helioproj02 returns error code " << thread_status << " for cluster " << inclustct << "\n";
+          }
+        }
+        if(long(heliopos1.size())!=ptnum) {
+          cerr << "ERROR: in link_planarity_omp heliolinc branch, of " << ptnum << " input points only " << heliopos1.size() << " were projected for cluster " << inclustct << "\n";
+        }
+        if(long(heliopos2.size())==ptnum) {
+          clusterdets2 = clusterdets;
+          bothcases=1;
+        }
+      } else {
+        // heliovane branch
+        bothcases=0;
+        lambda0 = onecluster.heliohyp0;
+        lambda_dot = onecluster.heliohyp1;
+        lambda_ddot = onecluster.heliohyp2;
+        lambdavec.clear();
+        for(ptct=0; ptct<ptnum; ptct++) {
+          if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+            delta1 = clusterdets[ptct].MJD - onecluster.orbit_MJD;
+          } else {
+            delta1 = clusterdets[ptct].MJD - onecluster.reference_MJD;
+          }
+          lambdavec.push_back(lambda0 + lambda_dot*delta1 + 0.5*lambda_ddot*delta1*delta1);
+        }
+        heliopos1.clear();
+        heliopos2.clear();
+        for(ptct=0; ptct<ptnum; ptct++) {
+          imct = clusterdets[ptct].image;
+          if(imct>=imnum) {
+            cerr << "ERROR: attempting to access image " << imct << " of only " << imnum << " available\n";
+            error_cases[ithread] = 8;
+            break;
+          }
+          observernow = point3d(image_log[imct].X,image_log[imct].Y,image_log[imct].Z);
+          celestial_to_stateunit(clusterdets[ptct].RA,clusterdets[ptct].Dec,unitbary);
+          targposvec.clear();
+          deltavec.clear();
+          targposvec.resize(1);
+          deltavec.resize(1);
+          thread_status = vaneproj01d(unitbary,observernow,lambdavec[ptct],min_proj_sine,deltavec[0],targposvec[0]);
+          if(thread_status==0) heliopos1.push_back(targposvec[0]);
+          else {
+            cerr << "ERROR: in link_planarity_omp, vaneproj01d returns error code " << thread_status << " for cluster " << inclustct << "\n";
+          }
+        }
+        if(long(heliopos1.size())!=ptnum) {
+          cerr << "ERROR: in link_planarity_omp heliovane branch, of " << ptnum << " input points only " << heliopos1.size() << " were projected for cluster " << inclustct << "\n";
+        }
+      }
+      if(badcluster==1) continue;
+
+      // Calculate planarity RMS
+      thread_status = planepolefind(heliopos1,polepos);
+      if(thread_status!=0) {
+        cerr << "ERROR: in link_planarity_omp, planepolefind returns error code " << thread_status << "\n";
+        continue;
+      }
+      normout1 = 0.0l;
+      planeout1.clear();
+      for(ptct=0; ptct<ptnum; ptct++) {
+        planeout1.push_back(fabs(dotprod3d(heliopos1[ptct],polepos)));
+        normout1 += DSQUARE(planeout1[ptct]*AU_KM/vecabs3d(heliopos1[ptct]));
+      }
+      normout1 = sqrt(normout1/double(ptnum));
+      normout2 = LARGERR2;
+      if(bothcases==1) {
+        thread_status = planepolefind(heliopos2,polepos);
+        if(thread_status==0) {
+          normout2 = 0.0l;
+          planeout2.clear();
+          for(ptct=0; ptct<ptnum; ptct++) {
+            planeout2.push_back(fabs(dotprod3d(heliopos2[ptct],polepos)));
+            normout2 += DSQUARE(planeout2[ptct]*AU_KM/vecabs3d(heliopos2[ptct]));
+          }
+          normout2 = sqrt(normout2/double(ptnum));
+        } else {
+          normout2 = LARGERR2;
+          cerr << "ERROR: in link_planarity_omp case2, planepolefind returns error code " << thread_status << "\n";
+        }
+      }
+
+      if(normout1 > config.max_oop && (bothcases==0 || normout2 > config.max_oop)) {
+        // Cluster failed planarity check; try iterative purification
+        if(ptnum <= config.minpointnum) {
+          if(config.verbose>=1) cout << "Thread " << ithread << " cluster " << inclustct << " too small: REJECTED.\n";
+          continue;
+        }
+        if(config.verbose>=1) cout << "Thread " << ithread << " trying to purify cluster " << inclustct << " with " << ptnum << " points, using planarity\n";
+        rejnum = 0;
+        rejmax = config.rejfrac*ptnum;
+        if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
+        if(rejmax > config.maxrejnum) rejmax=config.maxrejnum;
+        while(rejnum<rejmax && ptnum>config.minpointnum) {
+          wp=0;
+          wresid = planeout1[0];
+          for(ptct=1; ptct<ptnum; ptct++) {
+            if(planeout1[ptct]>wresid) { wresid = planeout1[ptct]; wp = ptct; }
+          }
+          heliopos1.erase(heliopos1.begin()+wp);
+          clusterdets.erase(clusterdets.begin()+wp);
+          if(bothcases==1) {
+            wp=0;
+            wresid = planeout2[0];
+            for(ptct=1; ptct<ptnum; ptct++) {
+              if(planeout2[ptct]>wresid) { wresid = planeout2[ptct]; wp = ptct; }
+            }
+            heliopos2.erase(heliopos2.begin()+wp);
+            clusterdets2.erase(clusterdets2.begin()+wp);
+          }
+          rejnum++;
+          ptnum = clusterdets.size();
+          mjdstep.clear();
+          for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(clusterdets[ii].MJD - clusterdets[ii-1].MJD);
+          daysteps=0;
+          for(long ii=0; ii<long(mjdstep.size()); ii++) { if(mjdstep[ii]>NIGHTSTEP) daysteps++; }
+          obsnights = daysteps+1;
+          if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
+            badcluster=1;
+          }
+          if(bothcases==1) {
+            mjdstep.clear();
+            for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(clusterdets2[ii].MJD - clusterdets2[ii-1].MJD);
+            daysteps=0;
+            for(long ii=0; ii<long(mjdstep.size()); ii++) { if(mjdstep[ii]>NIGHTSTEP) daysteps++; }
+            obsnights = daysteps+1;
+            if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
+              bothcases=0;
+            } else {
+              badcluster=0;
+            }
+          }
+          if(bothcases==0 && badcluster==1) break;
+          // Recalculate planarity
+          thread_status = planepolefind(heliopos1,polepos);
+          if(thread_status!=0) { cerr << "ERROR: link_planarity_omp planepolefind error " << thread_status << "\n"; badcluster=1; break; }
+          normout1 = 0.0l;
+          planeout1.clear();
+          for(ptct=0; ptct<ptnum; ptct++) {
+            planeout1.push_back(fabs(dotprod3d(heliopos1[ptct],polepos)));
+            normout1 += DSQUARE(planeout1[ptct]*AU_KM/vecabs3d(heliopos1[ptct]));
+          }
+          normout1 = sqrt(normout1/double(ptnum));
+          if(bothcases==1) {
+            thread_status = planepolefind(heliopos2,polepos);
+            if(thread_status==0) {
+              normout2 = 0.0l;
+              planeout2.clear();
+              for(ptct=0; ptct<ptnum; ptct++) {
+                planeout2.push_back(fabs(dotprod3d(heliopos2[ptct],polepos)));
+                normout2 += DSQUARE(planeout2[ptct]*AU_KM/vecabs3d(heliopos2[ptct]));
+              }
+              normout2 = sqrt(normout2/double(ptnum));
+            } else {
+              normout2 = LARGERR2;
+            }
+          }
+          if(normout1<=config.max_oop || (bothcases==1 && normout2<=config.max_oop)) {
+            if(bothcases==1 && normout2<normout1) {
+              clusterdets = clusterdets2;
+              if(config.verbose>=1) cout << "Thread " << ithread << " case2 planarity success: OOP RMS = " << normout2 << " for cluster " << inclustct << "\n";
+            } else if(config.verbose>=1) {
+              cout << "Thread " << ithread << " planarity success: OOP RMS = " << normout1 << " for cluster " << inclustct << "\n";
+            }
+            badcluster=0;
+            break;
+          }
+        }
+        if(normout1>config.max_oop && (bothcases==0 || normout2>config.max_oop)) {
+          if(config.verbose>=1) cout << "Thread " << ithread << " planarity purification failed for cluster " << inclustct << "\n";
+          badcluster=1;
+        }
+      } else {
+        // Passed planarity check immediately
+        if(bothcases==1 && normout2<normout1) {
+          clusterdets = clusterdets2;
+        }
+      }
+      if(badcluster==1) continue;
+
+      // Passed planarity check. Proceed with orbit fitting.
+      clustind.clear();
+      for(i=0;i<ptnum;i++) clustind.push_back(clusterdets[i].index);
+      istimedup=0;
+      for(ptct=1; ptct<ptnum; ptct++) {
+        if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+      }
+
+      // Load observational vectors
+      observerpos.clear();
+      obsMJD.clear(); obsRA.clear(); obsDec.clear(); sigastrom.clear(); fitRA.clear(); fitDec.clear(); resid.clear(); orbit.clear();
+      for(ptct=0; ptct<ptnum; ptct++) {
+        obsMJD.push_back(clusterdets[ptct].MJD);
+        obsRA.push_back(clusterdets[ptct].RA);
+        obsDec.push_back(clusterdets[ptct].Dec);
+        sigastrom.push_back(1.0L);
+        imct = clusterdets[ptct].image;
+        if(imct>=imnum) { cerr << "ERROR: image index out of range\n"; error_cases[ithread]=8; break; }
+        X = image_log[imct].X; Y = image_log[imct].Y; Z = image_log[imct].Z;
+        if(image_log[imct].MJD!=clusterdets[ptct].MJD) {
+          dt = clusterdets[ptct].MJD - image_log[imct].MJD;
+          if(dt*SOLARDAY > MAX_SHUTTER_CORR) { cerr << "ERROR: detection vs. image time mismatch\n"; error_cases[ithread]=4; break; }
+          X += image_log[imct].VX*dt; Y += image_log[imct].VY*dt; Z += image_log[imct].VZ*dt;
+        }
+        observerpos.push_back(point3d(X,Y,Z));
+      }
+
+      // Estimate geocentric distances for Herget initial conditions
+      if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+        startpos.x = onecluster.orbitX; startpos.y = onecluster.orbitY; startpos.z = onecluster.orbitZ;
+        startvel.x = onecluster.orbitVX; startvel.y = onecluster.orbitVY; startvel.z = onecluster.orbitVZ;
+        Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+      } else {
+        startpos.x = onecluster.posX; startpos.y = onecluster.posY; startpos.z = onecluster.posZ;
+        startvel.x = onecluster.velX; startvel.y = onecluster.velY; startvel.z = onecluster.velZ;
+        Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+      }
+      endpos.x -= observerpos[0].x; endpos.y -= observerpos[0].y; endpos.z -= observerpos[0].z;
+      geodist1 = vecabs3d(endpos)/AU_KM;
+      if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+        Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+      } else {
+        Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+      }
+      endpos.x -= observerpos[ptnum-1].x; endpos.y -= observerpos[ptnum-1].y; endpos.z -= observerpos[ptnum-1].z;
+      geodist2 = vecabs3d(endpos)/AU_KM;
+
+      simplex_scale = SIMPLEX_SCALEFAC;
+      if(config.verbose>=1) cout << "Thread " << ithread << " fitting cluster " << inclustct << " of " << inclustnum << ": ";
+      chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, obsMJD, obsRA, obsDec, sigastrom, config.ecc_penalty, fitRA, fitDec, resid, orbit, config.verbose);
+      if(chisq>=LARGERR3) {
+        cerr << "WARNING: Hergetfit_vstar() returned error for cluster " << inclustct << "\n";
+      }
+      chisq /= double(ptnum);
+      astromrms = sqrt(chisq);
+      if(config.verbose>=1) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+
+      if(astromrms <= config.max_astrom_rms && istimedup==0) {
+        // Cluster is good without further purification
+      } else {
+        // Iterative orbit-fitting purification
+        if(ptnum <= config.minpointnum) {
+          if(config.verbose>=1) cout << "Thread " << ithread << " cluster " << inclustct << " too small: REJECTED.\n";
+          continue;
+        }
+        if(config.verbose>=1) cout << "Thread " << ithread << " trying to purify cluster " << inclustct << " with " << ptnum << " points, using orbit-fitting\n";
+        rejnum = 0;
+        rejmax = config.rejfrac*ptnum;
+        if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
+        if(rejmax > config.maxrejnum) rejmax=config.maxrejnum;
+        badcluster=1; // Assume bad until purified
+        while(rejnum<rejmax && ptnum>config.minpointnum) {
+          if(astromrms > config.max_astrom_rms) {
+            int wp2=0; double wresid2 = resid[0];
+            for(long ii=1;ii<ptnum;ii++) { if(resid[ii]>wresid2) { wresid2=resid[ii]; wp2=ii; } }
+            clusterdets.erase(clusterdets.begin()+wp2);
+            obsMJD.erase(obsMJD.begin()+wp2); obsRA.erase(obsRA.begin()+wp2);
+            obsDec.erase(obsDec.begin()+wp2); sigastrom.erase(sigastrom.begin()+wp2);
+            observerpos.erase(observerpos.begin()+wp2);
+            ptnum--; rejnum++;
+          } else if(astromrms <= config.max_astrom_rms && istimedup>0) {
+            vector <long> badpoints = {};
+            for(ptct=1; ptct<ptnum; ptct++) {
+              if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) {
+                if(resid[ptct-1]>resid[ptct]) badpoints.push_back(ptct-1);
+                else badpoints.push_back(ptct);
+              }
+            }
+            sort(badpoints.begin(), badpoints.end());
+            for(long ii=long(badpoints.size()-1); ii>=0; ii--) {
+              clusterdets.erase(clusterdets.begin()+badpoints[ii]);
+              obsMJD.erase(obsMJD.begin()+badpoints[ii]); obsRA.erase(obsRA.begin()+badpoints[ii]);
+              obsDec.erase(obsDec.begin()+badpoints[ii]); sigastrom.erase(sigastrom.begin()+badpoints[ii]);
+              observerpos.erase(observerpos.begin()+badpoints[ii]);
+              ptnum--; rejnum++;
+            }
+          } else {
+            break;
+          }
+          mjdstep.clear();
+          for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(obsMJD[ii]-obsMJD[ii-1]);
+          daysteps=0;
+          for(long ii=0; ii<long(mjdstep.size()); ii++) { if(mjdstep[ii]>NIGHTSTEP) daysteps++; }
+          obsnights = daysteps+1;
+          if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
+            if(config.verbose>=1) cout << "Thread " << ithread << " cluster became invalid, REJECTING\n";
+            break;
+          }
+          clustind.clear();
+          for(long ii=0;ii<ptnum;ii++) clustind.push_back(clusterdets[ii].index);
+          istimedup=0;
+          for(ptct=1; ptct<ptnum; ptct++) {
+            if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+          }
+          startpos.x = orbit[3]; startpos.y = orbit[4]; startpos.z = orbit[5];
+          startvel.x = orbit[6]; startvel.y = orbit[7]; startvel.z = orbit[8];
+          Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+          endpos.x -= observerpos[0].x; endpos.y -= observerpos[0].y; endpos.z -= observerpos[0].z;
+          geodist1 = vecabs3d(endpos)/AU_KM;
+          Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+          endpos.x -= observerpos[ptnum-1].x; endpos.y -= observerpos[ptnum-1].y; endpos.z -= observerpos[ptnum-1].z;
+          geodist2 = vecabs3d(endpos)/AU_KM;
+          simplex_scale = SIMPLEX_SCALEFAC;
+          if(config.verbose>=1) cout << "Thread " << ithread << " fitting cluster " << inclustct << " minus " << rejnum << " outliers: ";
+          chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, obsMJD, obsRA, obsDec, sigastrom, config.ecc_penalty, fitRA, fitDec, resid, orbit, config.verbose);
+          if(chisq>=LARGERR3) cerr << "WARNING: Hergetfit_vstar() returned error\n";
+          chisq /= double(ptnum);
+          astromrms = sqrt(chisq);
+          if(config.verbose>=1) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+          if(astromrms <= config.max_astrom_rms && istimedup==0) {
+            if(config.verbose>=1) cout << "Thread " << ithread << " astromrms success for cluster " << inclustct << "\n";
+            badcluster=0;
+            break;
+          }
+        }
+        if(badcluster==1) continue;
+      }
+
+      // Cluster passed all checks. Record it.
+      onecluster.timespan = obsMJD[ptnum-1]-obsMJD[0];
+      onecluster.uniquepoints = ptnum;
+      onecluster.obsnights = obsnights;
+      if(config.ptpow>=0 && config.nightpow>=0) {
+        clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+      } else {
+        vector <int> obs_per_night;
+        int obs_this_night=1;
+        int first_obs_tonight=0;
+        for(ptct=1;ptct<ptnum;ptct++) {
+          if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+            obs_this_night++;
+          } else {
+            obs_per_night.push_back(obs_this_night);
+            obs_this_night=1;
+            first_obs_tonight=ptct;
+          }
+        }
+        obs_per_night.push_back(obs_this_night);
+        clustmetric = double(obs_per_night[0]);
+        for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+        clustmetric*=intpowD(onecluster.timespan,config.timepow);
+      }
+      onecluster.astromRMS = astromrms;
+      onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow);
+      onecluster.orbit_a = orbit[0]/AU_KM;
+      onecluster.orbit_e = orbit[1];
+      statevec.clear();
+      for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
+      onecluster.orbit_incl = statevec2kep_incl(statevec);
+      onecluster.orbit_MJD = orbit[2];
+      onecluster.orbitX = orbit[3]; onecluster.orbitY = orbit[4]; onecluster.orbitZ = orbit[5];
+      onecluster.orbitVX = orbit[6]; onecluster.orbitVY = orbit[7]; onecluster.orbitVZ = orbit[8];
+      onecluster.orbit_eval_count = long(round(orbit[9]));
+      holdclust_mat[ithread].push_back(onecluster);
+      clustindmat_mat[ithread].push_back(clustind);
+    } // end per-cluster loop
+  } // end omp parallel
+
+  // Check for error cases
+  for(threadct=0; threadct<nt; threadct++) {
+    if(error_cases[threadct]==4) {
+      cerr << "ERROR: detection vs. image time mismatch.\n"; return(error_cases[threadct]);
+    } else if(error_cases[threadct]==5) {
+      cerr << "ERROR: cluster index mismatch.\n"; return(error_cases[threadct]);
+    } else if(error_cases[threadct]==6) {
+      cerr << "ERROR: point number mismatch.\n"; return(error_cases[threadct]);
+    } else if(error_cases[threadct]==8) {
+      cerr << "ERROR: image index out of range.\n"; return(error_cases[threadct]);
+    } else if(error_cases[threadct]!=0) {
+      cerr << "ERROR: unknown error " << error_cases[threadct] << " in link_planarity_omp\n";
+    }
+  }
+
+  // Concatenate per-thread results. Preserve the original inclust
+  // clusternum on each cluster (do NOT overwrite with post-merge
+  // position) so we have a deterministic per-cluster identifier
+  // independent of the OMP schedule.
+  holdclust={};
+  clustindmat={};
+  clusterct=0;
+  for(threadct=0; threadct<nt; threadct++) {
+    for(long ii=0;ii<long(holdclust_mat[threadct].size());ii++) {
+      holdclust.push_back(holdclust_mat[threadct][ii]);
+    }
+    for(long ii=0;ii<long(clustindmat_mat[threadct].size());ii++) {
+      clustindmat.push_back(clustindmat_mat[threadct][ii]);
+    }
+  }
+  holdclust_mat={};
+  clustindmat_mat={};
+
+  // Sort the merged (holdclust, clustindmat) pair by the preserved
+  // inclust clusternum so the input to the metric-sort/dedup pass
+  // below is deterministic. Without this, dynamic OMP scheduling
+  // produces non-deterministic merge order, and std::sort tiebreaking
+  // on equal-metric clusters (common with coarse metric values)
+  // selects different survivors in the detection-greedy dedup.
+  {
+    long N = long(holdclust.size());
+    vector<long> perm(N);
+    for(long pi=0; pi<N; pi++) perm[pi]=pi;
+    std::sort(perm.begin(), perm.end(), [&holdclust](long a, long b){
+      return holdclust[a].clusternum < holdclust[b].clusternum;
+    });
+    vector<hlclust> hc_sorted; hc_sorted.reserve(N);
+    vector<vector<long>> cim_sorted; cim_sorted.reserve(N);
+    for(long pi=0; pi<N; pi++) {
+      hc_sorted.push_back(holdclust[perm[pi]]);
+      cim_sorted.push_back(clustindmat[perm[pi]]);
+    }
+    holdclust = std::move(hc_sorted);
+    clustindmat = std::move(cim_sorted);
+  }
+
+  long clusternum = holdclust.size();
+  cout << "Finished loading input clusters: " << clusternum << " out of " << inclustnum << " passed initial screening.\n";
+
+  // Sort by metric, then deduplicate using detusedvec
+  metric_index = {};
+  for(clusterct=0; clusterct<clusternum; clusterct++) {
+    dindex = double_index(holdclust[clusterct].metric,clusterct);
+    metric_index.push_back(dindex);
+  }
+  sort(metric_index.begin(), metric_index.end(), lower_double_index());
+
+  goodclusternum=0;
+  for(clusterct2=clusternum-1; clusterct2>=0; clusterct2--) {
+    clusterct = metric_index[clusterct2].index;
+    long inclustct = holdclust[clusterct].clusternum;
+    hlclust onecluster = holdclust[clusterct];
+    vector <long> clustind_out;
+    int ptnum_out,ptct_out,detsused_out;
+    ptnum_out=ptct_out=detsused_out=0;
+    longpair c2d_out = longpair(0,0);
+    char rating[SHORTSTRINGLEN];
+    clustind_out = clustindmat[clusterct];
+    ptnum_out = clustind_out.size();
+    if(onecluster.uniquepoints>0 && ptnum_out!=onecluster.uniquepoints) {
+      cerr << "ERROR: 2nd-stage point number mismatch " << ptnum_out << " != " << onecluster.uniquepoints << " at cluster " << inclustct << " (" << clusterct << ")\n";
+      return(7);
+    }
+    detsused_out = 0;
+    for(ptct_out=1; ptct_out<ptnum_out; ptct_out++) {
+      if(detusedvec[clustind_out[ptct_out]]!=0) detsused_out+=1;
+    }
+    if(onecluster.uniquepoints>0 && onecluster.totRMS<=config.maxrms && detsused_out==0) {
+      goodclusternum++;
+      cout << "Accepted good cluster " << goodclusternum << " with metric " << onecluster.metric << "\n";
+      stringncopy01(rating,"PURE",SHORTSTRINGLEN);
+      for(ptct_out=1; ptct_out<ptnum_out; ptct_out++) {
+        if(stringnmatch01(detvec[clustind_out[ptct_out]].idstring,detvec[clustind_out[ptct_out-1]].idstring,SHORTSTRINGLEN) != 0) {
+          stringncopy01(rating,"MIXED",SHORTSTRINGLEN);
+        }
+      }
+      for(i=0;i<SHORTSTRINGLEN;i++) onecluster.rating[i] = rating[i];
+      sortclust = {};
+      for(ptct_out=0; ptct_out<ptnum_out; ptct_out++) {
+        dindex = double_index(detvec[clustind_out[ptct_out]].MJD,clustind_out[ptct_out]);
+        sortclust.push_back(dindex);
+        detusedvec[clustind_out[ptct_out]]=1;
+      }
+      sort(sortclust.begin(), sortclust.end(), lower_double_index());
+      onecluster.clusternum = outclust.size();
+      outclust.push_back(onecluster);
+      for(ptct_out=0; ptct_out<ptnum_out; ptct_out++) {
+        c2d_out = longpair(onecluster.clusternum,sortclust[ptct_out].index);
+        outclust2det.push_back(c2d_out);
+      }
+    }
+  }
+  return(0);
+}
+
+
+int link_purify_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust1, const vector  <longpair> &inclust2det1, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det)
+{
+  vector <hlclust> inclust;
+  vector  <longpair> inclust2det;
+  long imnum = image_log.size();
+  long detnum = detvec.size();
+  long inclustnum = inclust1.size();
+  long clusternum=0;
+  vector <hlclust> holdclust;
+  vector <vector <long>> clustindmat;
+  vector <int> detusedvec = {};
+  vector <double_index> metric_index;
+  long clusterct,clusterct2,goodclusternum;
+  clusterct = clusterct2 = goodclusternum = 0;
+  double_index dindex = double_index(0l,0);
+  vector <double_index> sortclust;
+  longpair c2d = longpair(0,0);
+  char rating[SHORTSTRINGLEN];
+  long inclustct=0;
+  long ptct=0;
+  long ptnum=0;
+  long i=0;
+  int detsused=0;
+  hlclust onecluster = hlclust(0, 0.0l, 0.0l, 0.0l, 0.0l, 0, 0.0l, 0, 0, 0.0l, "NULL", 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0);
+  vector <long> clustind;
+  int status=1;
+
+  make_ivec(detnum, detusedvec); // All the entries are guaranteed to be 0.
+
+  // Wipe output arrays
+  holdclust={};
+  clustindmat={};
+  outclust={};
+  outclust2det={};
+
+  cout << "Launching link_purify_omp()\n";
+  if(config.useorbMJD>0) cout << "Epoch-of-orbit MJD will be used as MJDref, if available.\n";
+  else  cout << "Old reference MJD from heliolinc will be used as MJDref\n";
+  cout << "Maximum RMS in km: " << config.maxrms << "\n";
+  if(config.ptpow>=0 && config.nightpow>=0) {
+    cout << "In calculating the cluster quality metric, the number of\nunique points will be raised to the power of " << config.ptpow << " and\n";
+    cout << "the number of unique nights will be raised to the power of " << config.nightpow << ".\n";
+  } else {
+    cout << "Because the cluster-metric exponent for the number of unique points (which is set to " << config.ptpow << ") and/or\n";
+    cout << "the corresponding exponent for the number of unique nights (which is set to " << config.nightpow << ") is negative,\n";
+    cout << "a special (and recommended) case is triggered in which the cluster metric\n";
+    cout << "will be the product of the numbers of unique detections on every night that had some detections.\n";
+    cout << "E.g., an object observed twice per night on three nights would get a metric of 2*2*2 = 8.\n";
+  }
+  cout << "The total timespan will be raised to the power of " << config.timepow << ",\n";
+  cout << "and the astrometric RMS will be raised to the power of (negative) " << config.rmspow << "\n";
+  if(config.verbose>=1) cout << "verbose output has been selected\n";
+
+  // Cull out exact duplicates using link_dedup().
+  status =  link_dedup(inclust1, inclust2det1, inclust, inclust2det);
+  if(status!=0) {
+    cerr << "ERROR: link_dedup returned status " << status << "\n";
+    cerr << "link_purify_omp aborting\n";
+    return(status);
+  }
+  inclustnum = inclust.size();
+
+  cout << "Duplicate-culled cluster summary vector has length " << inclustnum << "\n";
+
+  // --- OMP setup: per-thread accumulators mirror link_planarity_omp ---
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "link_purify_omp: nthreads = " << nt << "\n";
+  vector <vector <hlclust>> holdclust_mat;
+  vector <vector <vector <long>>> clustindmat_mat;
+  vector <int> error_cases;
+  {
+    vector <hlclust> ov1;
+    vector <vector <long>> ov2;
+    for(int threadct=0; threadct<nt; threadct++) {
+      ov1={};
+      ov2={};
+      holdclust_mat.push_back(ov1);
+      clustindmat_mat.push_back(ov2);
+      error_cases.push_back(0);
+    }
+  }
+  long thread_clustnum = inclustnum/nt;
+  while(nt*thread_clustnum < inclustnum) thread_clustnum++;
+
+  #pragma omp parallel
+  {
+    int ithread = omp_get_thread_num();
+    // All per-iteration working state is thread-local (declared inside
+    // the parallel region so each thread gets its own copy).
+    long inclustct=0;
+    long i=0;
+    long imct=0;
+    double clustmetric = 0.0l;
+    hlclust onecluster = hlclust(0, 0.0l, 0.0l, 0.0l, 0.0l, 0, 0.0l, 0, 0, 0.0l, "NULL", 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0.0l, 0);
+    vector <long> clustind;
+    vector <hldet> clusterdets;
+    vector <hldet> clusterdets2;
+    int ptnum,ptct,istimedup,detsused;
+    long rejmax,rejnum;
+    ptnum=ptct=istimedup=detsused=0;
+    rejmax=rejnum=0;
+    point3d onepoint = point3d(0.0L,0.0L,0.0L);
+    vector <point3d> observerpos;
+    vector <double> obsMJD, obsRA, obsDec, sigastrom, fitRA, fitDec, resid, orbit, mjdstep, statevec;
+    double geodist1,geodist2, astromrms, chisq;
+    geodist1=geodist2=astromrms=chisq=0.0l;
+    double ftol = FTOL_HERGET_SIMPLEX;
+    double simplex_scale = SIMPLEX_SCALEFAC;
+    double X, Y, Z, dt;
+    X = Y = Z = dt = 0l;
+    point3d startpos = point3d(0.0l,0.0l,0.0l);
+    point3d startvel = point3d(0.0l,0.0l,0.0l);
+    point3d endpos = point3d(0.0l,0.0l,0.0l);
+    point3d endvel = point3d(0.0l,0.0l,0.0l);
+    long daysteps,obsnights;
+    daysteps=obsnights=0;
+    int is_identical=0;
+    int skip_cluster=0;
+
+    long firstclust = thread_clustnum*ithread;
+    long lastclust = thread_clustnum*(ithread+1);
+    if(lastclust>inclustnum) lastclust=inclustnum;
+
+    // Launch master loop over all the input clusters assigned to this thread.
+    for(inclustct=firstclust; inclustct<lastclust; inclustct++) {
+      skip_cluster=0;
+      onecluster = inclust[inclustct];
+      if(inclustct!=onecluster.clusternum) {
+        cerr << "ERROR: cluster index mismatch " << inclustct << " != " << onecluster.clusternum << " at input cluster " << inclustct << "\n";
+        error_cases[ithread] = 5;
+        continue;
+      }
+      if(onecluster.totRMS<=config.maxrms && onecluster.obsnights>=config.minobsnights && onecluster.uniquepoints>=config.minpointnum) {
+        // This cluster passes the initial cut. Analyze it.
+        // Load a vector with the indices to detvec
+        clustind = {};
+        clustind = tracklet_lookup(inclust2det, onecluster.clusternum);
+        ptnum = clustind.size();
+        if(ptnum!=onecluster.uniquepoints) {
+          cerr << "ERROR: point number mismatch " << ptnum << " != " << onecluster.uniquepoints << " at input cluster " << inclustct << "\n";
+          error_cases[ithread] = 6;
+          continue;
+        }
+        // Load vector of detections for this cluster
+        clusterdets={};
+        for(i=0; i<ptnum; i++) {
+          clusterdets.push_back(detvec[clustind[i]]);
+          clusterdets[i].index=clustind[i]; // Saves indices, to track later sorting.
+        }
+        sort(clusterdets.begin(), clusterdets.end(), early_hldet());
+        // Remove exact duplicates
+        clusterdets2 = clusterdets;
+        clusterdets={};
+        clustind = {};
+        ptct=0;
+        clusterdets.push_back(clusterdets2[ptct]);
+        clustind.push_back(clusterdets2[ptct].index);
+        for(ptct=1;ptct<ptnum;ptct++) {
+          i=clusterdets.size()-1;
+          is_identical=0;
+          while(i>=0 && fabs(clusterdets[i].MJD-clusterdets2[ptct].MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(clusterdets[i].obscode,clusterdets2[ptct].obscode,3)==0 && clusterdets[i].RA==clusterdets2[ptct].RA && is_identical==0) {
+            if(clusterdets[i].MJD==clusterdets2[ptct].MJD && clusterdets[i].Dec==clusterdets2[ptct].Dec) is_identical=1;
+            i--;
+          }
+          if(is_identical==0) {
+            clusterdets.push_back(clusterdets2[ptct]);
+            clustind.push_back(clusterdets2[ptct].index);
+          }
+        }
+        ptnum = clusterdets.size();
+        onecluster.uniquepoints = ptnum;
+        istimedup=0;
+        for(ptct=1; ptct<ptnum; ptct++) {
+          if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+        }
+        // Perform orbit fitting using the method of Herget
+        observerpos = {};
+        obsMJD = obsRA = obsDec = sigastrom = fitRA = fitDec = resid = orbit = {};
+        skip_cluster=0;
+        for(ptct=0; ptct<ptnum; ptct++) {
+          obsMJD.push_back(clusterdets[ptct].MJD);
+          obsRA.push_back(clusterdets[ptct].RA);
+          obsDec.push_back(clusterdets[ptct].Dec);
+          sigastrom.push_back(1.0L);
+          imct = clusterdets[ptct].image;
+          if(imct>=imnum) {
+            cerr << "ERROR: attempting to access image " << imct << " of only " << imnum << " available\n";
+            error_cases[ithread] = 8;
+            skip_cluster=1;
+            break;
+          }
+          X = image_log[imct].X;
+          Y = image_log[imct].Y;
+          Z = image_log[imct].Z;
+          if(image_log[imct].MJD!=clusterdets[ptct].MJD) {
+            dt = clusterdets[ptct].MJD - image_log[imct].MJD;
+            if(dt*SOLARDAY > MAX_SHUTTER_CORR) {
+              cerr << "ERROR: detection vs. image time mismatch of " << dt*SOLARDAY << " seconds.\n";
+              error_cases[ithread] = 4;
+              skip_cluster=1;
+              break;
+            }
+            X += image_log[imct].VX*dt;
+            Y += image_log[imct].VY*dt;
+            Z += image_log[imct].VZ*dt;
+          }
+          onepoint = point3d(X,Y,Z);
+          observerpos.push_back(onepoint);
+        }
+        if(skip_cluster) continue;
+        // All points now loaded; set up for orbit-fitting
+        if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+          startpos.x = onecluster.orbitX; startpos.y = onecluster.orbitY; startpos.z = onecluster.orbitZ;
+          startvel.x = onecluster.orbitVX; startvel.y = onecluster.orbitVY; startvel.z = onecluster.orbitVZ;
+          Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+        } else {
+          startpos.x = onecluster.posX; startpos.y = onecluster.posY; startpos.z = onecluster.posZ;
+          startvel.x = onecluster.velX; startvel.y = onecluster.velY; startvel.z = onecluster.velZ;
+          Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+        }
+        endpos.x -= observerpos[0].x;
+        endpos.y -= observerpos[0].y;
+        endpos.z -= observerpos[0].z;
+        geodist1 = vecabs3d(endpos)/AU_KM;
+        if(config.useorbMJD>0 && onecluster.orbit_MJD>0.0) {
+          Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.orbit_MJD, startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+        } else {
+          Kepler_univ_int(GMSUN_KM3_SEC2, onecluster.reference_MJD, startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+        }
+        endpos.x -= observerpos[ptnum-1].x;
+        endpos.y -= observerpos[ptnum-1].y;
+        endpos.z -= observerpos[ptnum-1].z;
+        geodist2 = vecabs3d(endpos)/AU_KM;
+        simplex_scale = SIMPLEX_SCALEFAC;
+        if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << ": ";
+        chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, obsMJD, obsRA, obsDec, sigastrom, config.ecc_penalty, fitRA, fitDec, resid, orbit, config.verbose);
+        if(chisq>=LARGERR3) {
+          cerr << "WARNING: Hergetfit_vstar() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+        }
+        chisq /= double(ptnum);
+        astromrms = sqrt(chisq);
+        if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+
+        if(astromrms <= config.max_astrom_rms && istimedup==0) {
+          // CLUSTER IS GOOD
+          if(config.verbose>=1 || inclustct%1000==0) cout << "Writing out good cluster " << inclustct << "\n";
+          if(config.ptpow>=0 && config.nightpow>=0) {
+            clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+          } else {
+            vector <int> obs_per_night;
+            int obs_this_night=1;
+            int first_obs_tonight=0;
+            for(ptct=1;ptct<ptnum;ptct++) {
+              if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+                obs_this_night++;
+              } else {
+                obs_per_night.push_back(obs_this_night);
+                obs_this_night=1;
+                first_obs_tonight=ptct;
+              }
+            }
+            obs_per_night.push_back(obs_this_night);
+            clustmetric = double(obs_per_night[0]);
+            for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+            clustmetric*=intpowD(onecluster.timespan,config.timepow);
+          }
+          onecluster.astromRMS = astromrms;
+          onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow);
+          onecluster.orbit_a = orbit[0]/AU_KM;
+          onecluster.orbit_e = orbit[1];
+          statevec={};
+          for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
+          onecluster.orbit_incl = statevec2kep_incl(statevec);
+          onecluster.orbit_MJD = orbit[2];
+          onecluster.orbitX = orbit[3]; onecluster.orbitY = orbit[4]; onecluster.orbitZ = orbit[5];
+          onecluster.orbitVX = orbit[6]; onecluster.orbitVY = orbit[7]; onecluster.orbitVZ = orbit[8];
+          onecluster.orbit_eval_count = long(round(orbit[9]));
+          holdclust_mat[ithread].push_back(onecluster);
+          clustindmat_mat[ithread].push_back(clustind);
+        } else if((astromrms>config.max_astrom_rms || istimedup>0) && ptnum>config.minpointnum) {
+          // CLUSTER IS NOT GOOD, BUT MIGHT BE FIXABLE
+          if(config.verbose>=1 || inclustct%1000==0) cout << "Trying to purify cluster " << inclustct << " with " << ptnum << " points\n";
+          rejnum = 0;
+          rejmax = config.rejfrac*ptnum;
+          if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
+          if(rejmax > config.maxrejnum) rejmax=config.maxrejnum;
+          while(rejnum<rejmax && ptnum>config.minpointnum) {
+            if(astromrms>config.max_astrom_rms) {
+              int wp=0;
+              double wresid = resid[0];
+              for(i=1;i<ptnum;i++) {
+                if(resid[i]>wresid) { wresid=resid[i]; wp = i; }
+              }
+              clusterdets.erase(clusterdets.begin()+wp);
+              obsMJD.erase(obsMJD.begin()+wp);
+              obsRA.erase(obsRA.begin()+wp);
+              obsDec.erase(obsDec.begin()+wp);
+              sigastrom.erase(sigastrom.begin()+wp);
+              observerpos.erase(observerpos.begin()+wp);
+              ptnum--;
+              rejnum++;
+              if(long(obsMJD.size())!=ptnum) {
+                cerr << "Vector trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
+                error_cases[ithread] = 9;
+                skip_cluster=1;
+                break;
+              }
+            } else if(astromrms <= config.max_astrom_rms && istimedup>0) {
+              vector <long> badpoints = {};
+              for(ptct=1; ptct<ptnum; ptct++) {
+                if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) {
+                  if(resid[ptct-1]>resid[ptct]) badpoints.push_back(ptct-1);
+                  else badpoints.push_back(ptct);
+                }
+              }
+              if(badpoints.size()<=0) {
+                cerr << "ERROR: link_purify_omp in duplicate-rejection loop, found no time-duplicates to reject\n";
+              }
+              sort(badpoints.begin(), badpoints.end());
+              for(i=long(badpoints.size()-1); i>=0; i--) {
+                clusterdets.erase(clusterdets.begin()+badpoints[i]);
+                obsMJD.erase(obsMJD.begin()+badpoints[i]);
+                obsRA.erase(obsRA.begin()+badpoints[i]);
+                obsDec.erase(obsDec.begin()+badpoints[i]);
+                sigastrom.erase(sigastrom.begin()+badpoints[i]);
+                observerpos.erase(observerpos.begin()+badpoints[i]);
+                ptnum--;
+                rejnum++;
+              }
+              if(long(obsMJD.size())!=ptnum) {
+                cerr << "Vector timedupe trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
+                error_cases[ithread] = 9;
+                skip_cluster=1;
+                break;
+              }
+            } else {
+              if(config.verbose>=1 || inclustct%1000==0) cout << "Weird cluster case, REJECTING\n";
+              break;
+            }
+            // Check if cluster is still valid
+            mjdstep={};
+            for(long ii=1; ii<ptnum; ii++) mjdstep.push_back(obsMJD[ii]-obsMJD[ii-1]);
+            daysteps=0;
+            for(long ii=0; ii<long(mjdstep.size()); ii++) {
+              if(mjdstep[ii]>NIGHTSTEP) daysteps++;
+            }
+            obsnights = daysteps+1;
+            if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
+              if(config.verbose>=1 || inclustct%1000==0) cout << "Cluster became invalid, REJECTING\n";
+              break;
+            }
+            clustind = {};
+            for(i=0;i<ptnum;i++) clustind.push_back(clusterdets[i].index);
+            istimedup=0;
+            for(ptct=1; ptct<ptnum; ptct++) {
+              if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+            }
+            startpos.x = orbit[3]; startpos.y = orbit[4]; startpos.z = orbit[5];
+            startvel.x = orbit[6]; startvel.y = orbit[7]; startvel.z = orbit[8];
+            Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+            endpos.x -= observerpos[0].x;
+            endpos.y -= observerpos[0].y;
+            endpos.z -= observerpos[0].z;
+            geodist1 = vecabs3d(endpos)/AU_KM;
+            Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+            endpos.x -= observerpos[ptnum-1].x;
+            endpos.y -= observerpos[ptnum-1].y;
+            endpos.z -= observerpos[ptnum-1].z;
+            geodist2 = vecabs3d(endpos)/AU_KM;
+            simplex_scale = SIMPLEX_SCALEFAC;
+            if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << " minus " << rejnum << " outliers: ";
+            chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, obsMJD, obsRA, obsDec, sigastrom, config.ecc_penalty, fitRA, fitDec, resid, orbit, config.verbose);
+            if(chisq>=LARGERR3) {
+              cerr << "WARNING: Hergetfit_vstar() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+            }
+            chisq /= double(ptnum);
+            astromrms = sqrt(chisq);
+            if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+
+            if(astromrms <= config.max_astrom_rms && istimedup==0) {
+              if(config.verbose>=1 || inclustct%1000==0) cout << "astromrms success: writing out purified cluster " << inclustct << "\n";
+              onecluster.timespan = obsMJD[ptnum-1]-obsMJD[0];
+              onecluster.uniquepoints = ptnum;
+              onecluster.obsnights = obsnights;
+              if(config.ptpow>=0 && config.nightpow>=0) {
+                clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+              } else {
+                vector <int> obs_per_night;
+                int obs_this_night=1;
+                int first_obs_tonight=0;
+                for(ptct=1;ptct<ptnum;ptct++) {
+                  if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+                    obs_this_night++;
+                  } else {
+                    obs_per_night.push_back(obs_this_night);
+                    obs_this_night=1;
+                    first_obs_tonight=ptct;
+                  }
+                }
+                obs_per_night.push_back(obs_this_night);
+                clustmetric = double(obs_per_night[0]);
+                for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+                clustmetric*=intpowD(onecluster.timespan,config.timepow);
+              }
+              onecluster.astromRMS = astromrms;
+              onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow);
+              onecluster.orbit_a = orbit[0]/AU_KM;
+              onecluster.orbit_e = orbit[1];
+              statevec={};
+              for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
+              onecluster.orbit_incl = statevec2kep_incl(statevec);
+              onecluster.orbit_MJD = orbit[2];
+              onecluster.orbitX = orbit[3]; onecluster.orbitY = orbit[4]; onecluster.orbitZ = orbit[5];
+              onecluster.orbitVX = orbit[6]; onecluster.orbitVY = orbit[7]; onecluster.orbitVZ = orbit[8];
+              onecluster.orbit_eval_count = long(round(orbit[9]));
+              holdclust_mat[ithread].push_back(onecluster);
+              clustindmat_mat[ithread].push_back(clustind);
+              break; // purified cluster accepted
+            } // end successful purification case
+            if((config.verbose>0 || inclustct%1000==0) && (rejnum>=rejmax || ptnum<=config.minpointnum)) cout << "Cluster became too small: REJECTED.\n";
+          } // closes while loop
+          if(skip_cluster) continue;
+        } else if (ptnum<=config.minpointnum) {
+          if(config.verbose>0 || inclustct%1000==0) cout << "Cluster is too small: REJECTED.\n";
+        }
+      } // end initial-cut if
+    } // end per-thread input cluster loop
+  } // end omp parallel
+
+  // --- Merge per-thread accumulators into holdclust / clustindmat ---
+  holdclust={};
+  clustindmat={};
+  for(int threadct=0; threadct<nt; threadct++) {
+    for(long ii=0; ii<long(holdclust_mat[threadct].size()); ii++) {
+      holdclust.push_back(holdclust_mat[threadct][ii]);
+    }
+    for(long ii=0; ii<long(clustindmat_mat[threadct].size()); ii++) {
+      clustindmat.push_back(clustindmat_mat[threadct][ii]);
+    }
+    if(error_cases[threadct] != 0) {
+      cerr << "WARNING: thread " << threadct << " reported error code " << error_cases[threadct] << " on at least one cluster (skipped).\n";
+    }
+  }
+  holdclust_mat={};
+  clustindmat_mat={};
+
+  clusternum = holdclust.size();
+  cout << "Finished loading input clusters: " << clusternum << " out of " << inclustnum << " passed initial screening.\n";
+
+  // --- Serial dedup/output phase, identical to link_purify() ---
+  metric_index = {};
+  for(clusterct=0; clusterct<clusternum; clusterct++) {
+    dindex = double_index(holdclust[clusterct].metric,clusterct);
+    metric_index.push_back(dindex);
+  }
+  sort(metric_index.begin(), metric_index.end(), lower_double_index());
+
+  goodclusternum=0;
+  for(clusterct2=clusternum-1; clusterct2>=0; clusterct2--) {
+    clusterct = metric_index[clusterct2].index;
+    inclustct = holdclust[clusterct].clusternum;
+    onecluster = holdclust[clusterct];
+    clustind = clustindmat[clusterct];
+    ptnum = clustind.size();
+    if(onecluster.uniquepoints>0 && ptnum!=onecluster.uniquepoints) {
+      cerr << "ERROR: 2nd-stage point number mismatch " << ptnum << " != " << onecluster.uniquepoints << " at input cluster " << inclustct << " (" << clusterct << ")\n";
+      return(7);
+    }
+    detsused = 0;
+    for(ptct=1; ptct<ptnum; ptct++) {
+      if(detusedvec[clustind[ptct]]!=0) detsused+=1;
+    }
+    if(onecluster.uniquepoints>0 && onecluster.totRMS<=config.maxrms && detsused==0) {
+      goodclusternum++;
+      cout << "Accepted good cluster " << goodclusternum << " with metric " << onecluster.metric << "\n";
+      stringncopy01(rating,"PURE",SHORTSTRINGLEN);
+      for(ptct=1; ptct<ptnum; ptct++) {
+        if(stringnmatch01(detvec[clustind[ptct]].idstring,detvec[clustind[ptct-1]].idstring,SHORTSTRINGLEN) != 0) {
+          stringncopy01(rating,"MIXED",SHORTSTRINGLEN);
+        }
+      }
+      for(i=0;i<SHORTSTRINGLEN;i++) onecluster.rating[i] = rating[i];
+      sortclust = {};
+      for(ptct=0; ptct<ptnum; ptct++) {
+        dindex = double_index(detvec[clustind[ptct]].MJD,clustind[ptct]);
+        sortclust.push_back(dindex);
+        detusedvec[clustind[ptct]]=1;
+      }
+      sort(sortclust.begin(), sortclust.end(), lower_double_index());
+      onecluster.clusternum = outclust.size();
+      outclust.push_back(onecluster);
+      for(ptct=0; ptct<ptnum; ptct++) {
+        c2d = longpair(onecluster.clusternum,sortclust[ptct].index);
+        outclust2det.push_back(c2d);
+      }
+    }
+  }
+  return(0);
+}
+
+
+
+// heliolinc_highgrade2_omp: April 2026.
+// OpenMP-parallel version of heliolinc_highgrade2 using dynamic scheduling.
+// Each thread processes one hypothesis independently: state-vector construction
+// (trk2statevec_*) and KD-tree clustering (highgrade_kdpairs) run per-thread with
+// thread-local scratch vectors.  The set of "interesting" detection indices is
+// accumulated into a shared char mark-array of length detvec.size(), which each
+// thread updates under #pragma omp atomic write.  After the parallel region the
+// main thread collects marked indices into outdet.  Peak memory is bounded to
+// num_threads x (one hypothesis of state vectors) plus the O(Ndet) mark array,
+// rather than accumulating a growing linkdet_indices across all hypotheses.
+int heliolinc_highgrade2_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, long minobsnum, vector <hldet> &outdet)
+{
+  outdet = {};
+
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+  long detnum = detvec.size();
+  long accelct=0;
+  long i=0;
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  cout << "heliolinc_highgrade2_omp: OpenMP parallel over " << accelnum << " hypotheses\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km, npt: " << config.dbscan_npt << "\n";
+
+  if(imnum<=0) { cerr << "ERROR: empty image catalog\n"; return(1); }
+  if(pairnum<=0) { cerr << "ERROR: empty tracklet array\n"; return(1); }
+  if(trk2detnum<=0) { cerr << "ERROR: empty trk2det array\n"; return(1); }
+  if(accelnum<=0) { cerr << "ERROR: empty heliocentric hypothesis array\n"; return(1); }
+  if(detnum<=0) { cerr << "ERROR: empty detection array\n"; return(1); }
+
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(i=0; i<detnum; i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cerr << "\nERROR: input positive-valued reference MJD is required\n";
+      cerr << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      return(1);
+    } else {
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << "Auto-selected reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0;accelct<accelnum;accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  // Shared mark array: 1 if detection index i appears in any hypothesis cluster.
+  vector <char> detmark(detnum, 0);
+
+#pragma omp parallel for schedule(dynamic) default(none) \
+  shared(image_log, detvec, tracklets, trk2det, radhyp, heliodist, heliovel, helioacc, \
+         Earthrefpos, config, chartimescale, detmark, accelnum, pairnum, detnum, \
+         use_univar, NotKepler, minobsnum, cout, cerr)
+  for(long ac=0; ac<accelnum; ac++) {
+    vector <point6ix2> local_statevecs;
+    vector <long> local_linkdet;
+    long status = 0;
+
+    if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
+      status = trk2statevec_univar(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else if(use_univar == 2) {
+      status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    } else if(use_univar == 3) {
+      status = trk2statevec_univarRR(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+    } else {
+      status = trk2statevec_fgfunc(image_log, tracklets, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_statevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+    }
+
+    if(status==1) {
+#pragma omp critical(hho_log)
+      cerr << "WARNING: hypothesis " << ac << " led to invalid result: SKIPPING\n";
+      continue;
+    } else if(status==2) {
+#pragma omp critical(hho_log)
+      cerr << "Fatal error from trk2statevec on hypothesis " << ac << "\n";
+      continue;
+    }
+    if(local_statevecs.size()<=1) continue;
+
+    status = highgrade_kdpairs(local_statevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist[ac], heliovel[ac], helioacc[ac], chartimescale, local_linkdet, config.clustrad, config.clustchangerad, config.dbscan_npt, minobsnum, config.mintimespan, config.mingeodist, config.geologstep, config.maxgeodist, config.verbose);
+    if(status!=0) {
+#pragma omp critical(hho_log)
+      cerr << "ERROR: highgrade_kdpairs hyp " << ac << " exit code " << status << "\n";
+      continue;
+    }
+
+#pragma omp critical(hho_log)
+    cout << "Hypothesis " << ac << ": " << local_linkdet.size() << " detections found\n";
+
+    // Mark detections in shared array.  Each index is a distinct byte so
+    // atomic writes are safe without needing a lock.
+    for(size_t k=0; k<local_linkdet.size(); k++) {
+      long idx = local_linkdet[k];
+      if(idx>=0 && idx<detnum) {
+#pragma omp atomic write
+        detmark[idx] = 1;
+      }
+    }
+  }
+
+  long nkept = 0;
+  for(i=0; i<detnum; i++) if(detmark[i]) nkept++;
+  outdet.reserve(nkept);
+  for(i=0; i<detnum; i++) {
+    if(detmark[i]) outdet.push_back(detvec[i]);
+  }
+
+  cout << "Found clusters for " << outdet.size() << " total detections, out of "
+       << detnum << " initially input. Reduction factor "
+       << double(detnum)/double(outdet.size()>0?outdet.size():1) << "\n";
+  if(automjd) cout << "Automatically calculated reference MJD was " << config.MJDref << "\n";
+  return(0);
+}
+
 // unpack_objstring: April 07, 2026:
 // Unpack a packed designation from MPC.
 int unpack_objstring(string packstring, string &unpackstring) {
-  
+
   if(packstring.size()<7) {
     cerr << "ERROR: cannot unpack designation " << packstring << "\n";
     return(1);
   }
-  
+
   int year,inum;
   string yrstring,yearstring,letterstring;
-  
+
   year=inum=0;
   if(packstring[0]=='I') year=1800;
   else if(packstring[0]=='J') year=1900;

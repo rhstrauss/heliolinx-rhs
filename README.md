@@ -44,6 +44,10 @@ make_tracklets.cpp
 ```
 heliolinc.cpp
 heliolinc_omp.cpp
+heliolinc_lowmem.cpp
+heliolinc_lowmem_omp.cpp
+helio_highgrade.cpp
+helio_highgrade_omp.cpp
 ```
 
 ##### Tracklet linking (heliovane): #####
@@ -55,6 +59,7 @@ heliovane.cpp
 ```
 link_purify.cpp
 link_planarity.cpp
+link_planarity_omp.cpp
 ```
 
 ##### Library for solar system dynamics and geometry, etc: #####
@@ -68,6 +73,13 @@ solarsyst_dyn_geo01.h
 parse_clust2det_new.cpp
 parse_clust2det_MPC80.cpp
 modsplit_hlfile.cpp
+merge_det_catalogs.cpp
+split_tracklets_by_time.cpp
+```
+
+##### Tests: #####
+```
+tests/validate_pipeline.py
 ```
 
 #### Makefile: ####
@@ -117,11 +129,53 @@ make install
 
 **heliolinc_omp:** Multi-threaded version of heliolinc.
 
+**heliolinc_lowmem:** Memory-efficient variant of `heliolinc` that streams per-hypothesis work through a lower-footprint code path. Accepts the same inputs as `heliolinc` and is recommended for long time windows or large detection catalogs where the standard `heliolinc` would exhaust available RAM.
+
+**heliolinc_lowmem_omp:** OpenMP-parallel, streaming-output variant of `heliolinc_lowmem`. The outer loop over heliocentric hypotheses is parallelized across threads, and each hypothesis writes its own `{outsum}_{N}.txt` and `{clust2det}_{N}.csv` pair to disk as it completes, so peak memory does not scale with the number of hypotheses. `-outsum` and `-clust2det` are therefore treated as filename prefixes rather than single output files. Thread count is taken from `OMP_NUM_THREADS`. Per-hypothesis output files can be fed directly into `link_planarity_omp` / `link_purify_omp` via an `-lflist` file, replicating the Python `multiprocessing.Pool` pattern in a single binary with no per-hypothesis process overhead.
+
+**helio_highgrade:** High-grade a detection catalog by running only the clustering half of heliolinc across a grid of heliocentric radial-motion hypotheses and emitting every detection that appears in any cluster. The output is a much smaller detection catalog that preserves real objects and suppresses noise, suitable as input to a subsequent full `heliolinc_lowmem` / `link_planarity` / `link_purify` run. CLI mirrors `heliolinc_lowmem`.
+
+**helio_highgrade_omp:** OpenMP-parallel variant of `helio_highgrade`. The outer loop over heliocentric hypotheses runs in parallel with thread-local state-vector and clustering scratch, and survivor detection indices are accumulated into a shared `char` mark array using atomic stores rather than a growing/sorted index vector. The mark array is collapsed to a de-duplicated `outdet` after the parallel region. Output format and CLI are identical to `helio_highgrade`; thread count is taken from `OMP_NUM_THREADS`. See `helio_highgrade_omp.md` for a complete description of the differences from the serial version.
+
+**link_planarity_omp:** OpenMP-parallel variant of `link_planarity`. Reads the standard `-lflist` file enumerating one or more `sumfile clust2detfile` pairs (typically the per-hypothesis outputs from `heliolinc_lowmem_omp`) and processes the pairs in parallel across threads. A single merged `-outsum` / `-clust2det` pair is written at the end, bit-identical to the serial `link_planarity` output on the same inputs.
+
+**merge_det_catalogs:** Combine multiple detection catalogs (each with its own column-format file, as accepted by `make_tracklets`) into a single time-sorted catalog in the canonical 14-column detection format. Catalogs are read in parallel (one OpenMP thread per catalog), skip the sort when already time-ordered, and are merged with a k-way min-heap merge (`O(N log k)` rather than `O(N log N)` for a global re-sort). Output is directly ingestible by `make_tracklets` with a matching colformat file. Useful for merging catalogs from multiple telescopes/sites, or for combining nightly products into a window-level input.
+
+**split_tracklets_by_time:** Time-partition the four output files of `make_tracklets` (or `make_trailed_tracklets`) — `outim`, `pairdets`, `tracklets`, `trk2det` — into a series of non-overlapping windows of at most `-window` days each. Each tracklet is assigned to the window that contains its first image. The point of this is to avoid re-running `make_tracklets` on a long window just to slice it into smaller pieces for per-window heliolinc runs: run `make_tracklets` once, then split. Output filenames get a `_split{NNN}` suffix; override the stem with `-outstem`.
+
+**tests/validate_pipeline.py:** End-to-end validation test for the pipeline. Generates synthetic detections for a small number of simulated main-belt asteroids on circular ecliptic-plane orbits near opposition, runs `make_tracklets → heliolinc → link_purify`, and verifies that every simulated object is recovered as a distinct linkage. Useful as a sanity check after a build, or as a regression gate when modifying the inner numerical kernels (e.g. the Halley Kepler solver — see `halleysolver.md`). Run with `python3 tests/validate_pipeline.py`; pass `--keep-tmpdir` to inspect the generated files.
+
 **heliovane:** Implements a complementary linking algorithm different from heliolinc, offering much better performance in the specific niche case of asteroids interior to Earth's orbit and seen at a sun-asteroid-observer phase angle close to 90 degrees.
 
 **link_purify:** Post-process linkages produced by heliolinc. This includes Keplerian orbit-fitting of every linkage; iterative (one at a time) rejection of astrometric outliers until the RMS astrometric residual falls below a threshold; identification of sets of mutually overlapping linkages; selection of the best linkage within each mutually overlapping set; and rejection of all the other overlapping linkages. The output from `link_purify` is a final set of linkages guaranteed to be non-overlapping (i.e., composed of detections not shared by any other linkage) and that have been successfully fit by orbits with RMS astrometric residual below the specified threshold.
 
 **link_planarity:** A version of `link_purify` that uses pre-screening based on lack of coplanarity of the inferred 3-D positions to reject some outliers prior to the (much more computationally intensive) Keplerian orbit fitting. With a well-chosen coplanarity criterion, `link_planarity` achieves results almost as good as those of `link_purify` with runtimes a factor of a few shorter.
+
+## Additional programs in this fork (heliolinx-rhs): ##
+
+The `heliolinx-rhs` fork adds OpenMP-parallel variants and several new programs. A complete, categorized inventory lives in `CLAUDE.md`; the highlights:
+
+**make_tracklets_omp:** OpenMP-parallel `make_tracklets` (parallelized over nightly chunks).
+
+**make_trailed_tracklets:** Builds tracklets from *trailed* (streaked) detections of fast-moving objects, where each detection already records the streak.
+
+**Cross-observatory tracklet linking:** `make_tracklets` / `make_trailed_tracklets` now accept per-image observer positions (`img_log`). When a candidate tracklet spans detections from more than one observatory, the great-circle-residual fit is redone with a parallax correction over a set of trial heliocentric distances, enabling cross-site links that a single-observatory fit would reject.
+
+**merge_det_catalogs / merge_tracklet_files:** Combine detection catalogs (multi-site, time-sorted, k-way merge) or tracklet file sets into single inputs.
+
+**heliolinc_estimate:** Predict peak memory and runtime for a `heliolinc_lowmem_omp` run before launching it.
+
+**heliolinc_lowmem_omp cross-hypothesis dedup:** With `-dedup yes`, identical detection-sets found under different hypotheses are collapsed via a parallel "funnel" (per-thread survivor maps + deterministic tree-merge), keeping the best-fitting (lowest-RMS / highest-metric) representative. Output is byte-identical regardless of thread count.
+
+**link_purify_chisq / link_purify_chisq_omp:** A `link_purify` variant whose cluster-quality metric is chi-square based. `link_purify_chisq_omp` parallelizes the per-cluster orbit fitting (`-n_workers N`), uses a parallel exact-duplicate cull (`link_dedup_funnel`), and includes a guard against a segfault on pathological orbit-fit failures. It also offers an optional `-max_oop` planarity pre-cull (off by default): when set, non-coplanar linkages are rejected by a fast geometric test *before* the expensive orbit fit, fusing the `link_planarity` screen with chi-square purification in a single pass.
+
+**dedup_across_windows:** Cross-window linkage deduplication keyed on the detection idstrings, for stitching together per-window pipeline output.
+
+**parse_clust2det / parse_clust2det_MPC80:** Expand cluster summaries into per-detection rows, or into MPC 80-column astrometry.
+
+**label_hldet / label_hldet_mpc:** Label heliolinc detections; `label_hldet_mpc` cross-matches them against the Minor Planet Center catalog.
+
+**inject_fakes:** Synthetic small-body injection for survey-data testing. Fully argument-driven (every input/output is a CLI flag, no hardcoded paths); generates a fakes-only detection catalog plus a matching truth file by propagating supplied or population-sampled orbits through the heliolinx ephemeris/projection routines. See `inject_fakes_design.md`.
 
 ## Testing your installation: ##
 
