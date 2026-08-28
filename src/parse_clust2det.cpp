@@ -397,7 +397,7 @@ int main(int argc, char *argv[])
 	outstream1 << fixed << setprecision(4) << clustvec[i].mag << ",";
 	outstream1 << fixed << setprecision(2) << clustvec[i].trail_len << "," << clustvec[i].trail_PA << ",";
 	outstream1 << fixed << setprecision(4) << clustvec[i].sigmag << ",";
-	outstream1 << fixed << setprecision(3) << clustvec[i].sig_across << "," << clustvec[i].sig_along << ",";
+	outstream1 << fixed << setprecision(4) << clustvec[i].sig_across << "," << clustvec[i].sig_along << ",";
 	outstream1 << clustvec[i].image << "," << clustvec[i].idstring << "," << clustvec[i].band << ",";
 	outstream1 << clustvec[i].obscode << "," << clustvec[i].known_obj << ",";
 	outstream1 << clustvec[i].det_qual << "," << clustvec[i].index << "\n";

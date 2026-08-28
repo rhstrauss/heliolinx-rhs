@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
 	  outstream1 << fixed << setprecision(4) << trackvec[j].mag << ",";
 	  outstream1 << fixed << setprecision(2) << trackvec[j].trail_len << "," << trackvec[j].trail_PA << ",";
 	  outstream1 << fixed << setprecision(4) << trackvec[j].sigmag << ",";
-	  outstream1 << fixed << setprecision(3) << trackvec[j].sig_across << "," << trackvec[j].sig_along << ",";
+	  outstream1 << fixed << setprecision(4) << trackvec[j].sig_across << "," << trackvec[j].sig_along << ",";
 	  outstream1 << trackvec[j].image << "," << trackvec[j].idstring << "," << trackvec[j].band << ",";
 	  outstream1 << trackvec[j].obscode << "," << trackvec[j].known_obj << ",";
 	  outstream1 << trackvec[j].det_qual << "," << trkct << "," << trackvec[j].index << "\n";

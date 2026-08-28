@@ -706,7 +706,7 @@ int main(int argc, char *argv[])
     outstream1 << fixed << setprecision(4) << pairdets[i].mag << ",";
     outstream1 << fixed << setprecision(2) << pairdets[i].trail_len << "," << pairdets[i].trail_PA << ",";
     outstream1 << fixed << setprecision(4) << pairdets[i].sigmag << ",";
-    outstream1 << fixed << setprecision(3) << pairdets[i].sig_across << "," << pairdets[i].sig_along << ",";
+    outstream1 << fixed << setprecision(4) << pairdets[i].sig_across << "," << pairdets[i].sig_along << ",";
     outstream1 << pairdets[i].image << "," << pairdets[i].idstring << "," << pairdets[i].band << ",";
     outstream1 << pairdets[i].obscode << "," << pairdets[i].known_obj << ","; 
     outstream1 << pairdets[i].det_qual << "," << pairdets[i].index << "\n"; 
