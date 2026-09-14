@@ -43440,7 +43440,7 @@ int lowmem_to_hlclust(const vector <hldet> &detvec, const vector <shortclust> &o
 // form_clusters_*_lowmem, link_dedup_lowmem2, lowmem_to_hlclust, and
 // the read/write_clustersum_file formats.
 //
-//   heliolinc_alg_omp_lowmem  -streaming yes (per-hyp files, memory-bounded)
+//   heliolinc_alg_omp_lowmem_streaming  -streaming yes (per-hyp files, memory-bounded)
 //   heliolinc_alg_omp_lowmem            -streaming no  (in RAM, like heliolinc_alg_lowmem)
 // ================================================================
 
