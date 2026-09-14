@@ -531,7 +531,20 @@ int main(int argc, char *argv[])
       }
     } else if(string(argv[i]) == "-n_workers" || string(argv[i]) == "-nworkers" || string(argv[i]) == "-nw" || string(argv[i]) == "-nthreads" || string(argv[i]) == "-threads" || string(argv[i]) == "--n_workers" || string(argv[i]) == "--nworkers" || string(argv[i]) == "--threads") {
       if(i+1 < argc) {
-	n_workers=stoi(argv[++i]);
+	string nwstr = argv[++i];
+	size_t nwpos = 0;
+	long nwval = 0;
+	try {
+	  nwval = stol(nwstr, &nwpos);
+	} catch(...) {
+	  nwpos = 0; // not a number, or out of range for long
+	}
+	if(nwstr.empty() || nwpos != nwstr.size() || nwval > INT_MAX || nwval < INT_MIN) {
+	  cerr << "ERROR: -n_workers expects a whole number of threads (0 = OpenMP runtime default); got '" << nwstr << "'\n";
+	  show_usage();
+	  return(1);
+	}
+	n_workers = int(nwval);
 	i++;
       }
       else {
