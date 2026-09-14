@@ -459,12 +459,20 @@ struct HeliolincConfig {
                                // we set it to positive values. In this case it is also necessary
                                // to set use_univar=1, since only the universal variable formulation
                                // can handle unbound orbits.
-  double tanveltol = 1000.0;   // Maximum discrepancy in km/sec between heliocentric tangential velocity implied
+  double tanveltol = -1.0;     // Maximum discrepancy in km/sec between heliocentric tangential velocity implied
                                // by the hypothesis and that actually calculated for a specific tracklet.
                                // This value scales linearly with distance-to-observer for distances greater
                                // than veltol_changerad AU, but remains constant at smaller distances.
-  double veltol_changerad = 0.01; // Minimum distance-to-observer, in AU, at which linear scaling of tangential
+  double veltol_changerad = -1.0; // Minimum distance-to-observer, in AU, at which linear scaling of tangential
                                   // velocity tolerance still applies.
+                                  // tanveltol <= 0 (the default) turns SAD tracklet rejection off;
+                                  // it runs only when tanveltol and veltol_changerad are both positive.
+  int use_uint = 0;            // 1 = tracklets and trk2det in the memory-efficient uint_tracklet / uint_pair forms
+  int use_dbscan = 0;          // 1 = cluster with DBSCAN instead of the k-d tree range query
+  int use_rr = 0;              // 1 = match positions at two reference times (heliolinc_RR) instead of position+velocity
+  int use_taylor = 0;          // 1 = propagate with a Taylor series instead of the Keplerian solver
+                               // use_univar 0|1 combines with use_dbscan, use_rr and use_taylor; use_univar 2-15
+                               // is the older combined code and cannot be mixed with them.
   int verbose=0;
 };
 
@@ -857,6 +865,20 @@ public:
   unsigned int i2;
   uint_pair(unsigned int i1, unsigned int i2) :i1(i1), i2(i2) { }
   uint_pair() = default;
+};
+
+class uint_tracklet{ // Pair or tracklet for heliolinc, using memory-efficient forms of everything. 
+public:
+  uint Img1;
+  uint RA1;
+  int Dec1;
+  uint Img2;
+  uint RA2;
+  int Dec2;
+  int npts;
+  uint trk_ID;
+  uint_tracklet(long img1, double ra1, double dec1, long img2, double ra2, double dec2, int npts, long trk_id) :Img1(img1), RA1(ra1), Dec1(dec1), Img2(img2), RA2(ra2), Dec2(dec2), npts(npts), trk_ID(trk_id) { }
+  uint_tracklet() = default;
 };
 
 class point2d{ // Double-precision 2-D point
@@ -2035,6 +2057,22 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
 int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
 int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
 int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
+// uint inputs and SAD tracklet rejection (ported from heliolinx-aux 03e3411)
+double distradec01_uint(unsigned int iRA1, int iDec1, unsigned int iRA2, int iDec2);
+unsigned int uint_RAconv(double RAdub);
+double uint_RAconv(unsigned int RA);
+int int_Decconv(double Decdub);
+double int_Decconv(int Dec);
+int read_tracklet_file_uint(string trackletfile, vector <uint_tracklet> &tracklets, int verbose);
+int read_uint_pair_file(string pairfile, vector <uint_pair> &pairvec, int verbose);
+int trk2statevec_fgfunc_TNV_uint(const vector <hlimage> &image_log, const vector <uint_tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, double tanveltol, double veltol_changerad, int NotKepler);
+int form_clusters_kd4_uint(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
+int heliolinc_alg_TNV_uint(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
+int form_clusters_kd4_lowmem_uint(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
+int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
+int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
+int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
+int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
 int heliolinc_highgrade(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, long minobsnum, vector <hldet> &outdet);
 int heliolinc_highgrade2(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, long minobsnum, vector <hldet> &outdet);
 int heliolinc_alg_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);

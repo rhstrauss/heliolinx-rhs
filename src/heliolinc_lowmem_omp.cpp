@@ -180,7 +180,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads(default_1,_0=OpenMP_default) -streaming yes|no(default_yes:per-hyp_intermediate_files) -dedup yes|no(default_yes:cross-hyp_collapse_to_single_deduped_pair) -verbose verbosity\n";
+  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -use_uint 0|1 -use_dbscan 0|1 -use_rr 0|1 -use_taylor 0|1 -tanveltol km/s(default_-1=SAD_off) -tanvel_changerad AU(default_-1) -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads(default_1,_0=OpenMP_default) -streaming yes|no(default_yes:per-hyp_intermediate_files) -dedup yes|no(default_yes:cross-hyp_collapse_to_single_deduped_pair) -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -188,6 +188,26 @@ static void show_usage()
   
 }
     
+// Parse a 1|0 (or yes|no) option value; returns 0 on success.
+static int parse_yes_no(const string &sval, int &out)
+{
+  if(sval=="yes" || sval=="y" || sval=="1" || sval=="true" || sval=="on") { out = 1; return(0); }
+  if(sval=="no" || sval=="n" || sval=="0" || sval=="false" || sval=="off") { out = 0; return(0); }
+  return(1);
+}
+
+// Parse a real-valued option, rejecting non-numbers and trailing characters; returns 0 on success.
+static int parse_real(const string &sval, double &out)
+{
+  size_t pos = 0;
+  try {
+    out = stod(sval, &pos);
+  } catch(...) {
+    return(1);
+  }
+  return((!sval.empty() && pos==sval.size()) ? 0 : 1);
+}
+
 int main(int argc, char *argv[])
 {
   vector <hldet> detvec = {};
@@ -195,6 +215,8 @@ int main(int argc, char *argv[])
   vector <hlimage> image_log;
   vector <tracklet> tracklets;
   vector <longpair> trk2det;
+  vector <uint_tracklet> uint_tracklets; // used with -use_uint 1
+  vector <uint_pair> uint_trk2det;
   vector <hlradhyp> radhyp;
   vector <EarthState> earthpos;
   HeliolincConfig config;
@@ -547,6 +569,54 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-use_uint" || string(argv[i]) == "-uint" || string(argv[i]) == "--use_uint") {
+      if(i+1 < argc && parse_yes_no(argv[i+1], config.use_uint)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -use_uint (uint inputs) expects 1|0 (or yes|no)\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-use_dbscan" || string(argv[i]) == "-dbscan" || string(argv[i]) == "--use_dbscan") {
+      if(i+1 < argc && parse_yes_no(argv[i+1], config.use_dbscan)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -use_dbscan (DBSCAN clustering) expects 1|0 (or yes|no)\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-use_rr" || string(argv[i]) == "-rr" || string(argv[i]) == "--use_rr") {
+      if(i+1 < argc && parse_yes_no(argv[i+1], config.use_rr)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -use_rr (RR position matching) expects 1|0 (or yes|no)\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-use_taylor" || string(argv[i]) == "-taylor" || string(argv[i]) == "--use_taylor") {
+      if(i+1 < argc && parse_yes_no(argv[i+1], config.use_taylor)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -use_taylor (Taylor series) expects 1|0 (or yes|no)\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-tanveltol" || string(argv[i]) == "-tanvel" || string(argv[i]) == "-veltol") {
+      if(i+1 < argc && parse_real(argv[i+1], config.tanveltol)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -tanveltol (SAD tolerance, km/s) expects a number\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-tanvel_changerad" || string(argv[i]) == "-veltol_changerad" || string(argv[i]) == "-vel_changerad") {
+      if(i+1 < argc && parse_real(argv[i+1], config.veltol_changerad)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -tanvel_changerad (SAD tolerance floor distance, AU) expects a number\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-dedup" || string(argv[i]) == "--dedup" || string(argv[i]) == "-postdedup" || string(argv[i]) == "--postdedup") {
       if(i+1 < argc) {
 	string sval = argv[++i];
@@ -729,23 +799,51 @@ int main(int argc, char *argv[])
   }
   cout << "Read " << image_log.size() << " data lines from image file " << imfile << "\n";
   
-  tracklets={};
-  status=read_tracklet_file(trackletfile, tracklets, config.verbose);
-  if(status!=0) {
-    cerr << "ERROR: could not successfully read tracklet file " << trackletfile << "\n";
-    cerr << "read_tracklet_file returned status = " << status << ".\n";
-   return(1);
-  }
-  cout << "Read " << tracklets.size() << " data lines from tracklet file " << trackletfile << "\n";
+  if(config.use_uint) {
+    // Memory-efficient inputs (Ari's uint_tracklet / uint_pair), indexed with unsigned ints.
+    if(detvec.size()>=UINT_MAX) {
+      cerr << "ERROR: -use_uint 1 needs fewer than " << UINT_MAX << " detections; got " << detvec.size() << "\n";
+      return(1);
+    }
+    uint_tracklets={};
+    status=read_tracklet_file_uint(trackletfile, uint_tracklets, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: could not successfully read tracklet file " << trackletfile << "\n";
+      cerr << "read_tracklet_file_uint returned status = " << status << ".\n";
+      return(1);
+    }
+    if(uint_tracklets.size()>=UINT_MAX) {
+      cerr << "ERROR: -use_uint 1 needs fewer than " << UINT_MAX << " tracklets; got " << uint_tracklets.size() << "\n";
+      return(1);
+    }
+    cout << "Read " << uint_tracklets.size() << " data lines from tracklet file " << trackletfile << " (uint form)\n";
+    uint_trk2det={};
+    status=read_uint_pair_file(trk2detfile, uint_trk2det, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: could not successfully read trk2det file " << trk2detfile << "\n";
+      cerr << "read_uint_pair_file returned status = " << status << ".\n";
+      return(1);
+    }
+    cout << "Read " << uint_trk2det.size() << " data lines from trk2det file " << trk2detfile << " (uint form)\n";
+  } else {
+    tracklets={};
+    status=read_tracklet_file(trackletfile, tracklets, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: could not successfully read tracklet file " << trackletfile << "\n";
+      cerr << "read_tracklet_file returned status = " << status << ".\n";
+     return(1);
+    }
+    cout << "Read " << tracklets.size() << " data lines from tracklet file " << trackletfile << "\n";
   
-  trk2det={};
-  status=read_longpair_file(trk2detfile, trk2det, config.verbose);
-  if(status!=0) {
-    cerr << "ERROR: could not successfully read trk2det file " << trk2detfile << "\n";
-    cerr << "read_longpair_file returned status = " << status << ".\n";
-   return(1);
+    trk2det={};
+    status=read_longpair_file(trk2detfile, trk2det, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: could not successfully read trk2det file " << trk2detfile << "\n";
+      cerr << "read_longpair_file returned status = " << status << ".\n";
+     return(1);
+    }
+    cout << "Read " << trk2det.size() << " data lines from trk2det file " << trk2detfile << "\n";
   }
-  cout << "Read " << trk2det.size() << " data lines from trk2det file " << trk2detfile << "\n";
   cout << "output summary file prefix " << sumfile << "\n";
   cout << "output clust2det file prefix " << clust2detfile << "\n";
   if(streaming) {
@@ -774,13 +872,15 @@ int main(int argc, char *argv[])
   }
 
   if(streaming) {
-    status=heliolinc_alg_omp_lowmem_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
+    if(config.use_uint) status=heliolinc_alg_omp_lowmem_streaming(image_log, detvec, uint_tracklets, uint_trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
+    else status=heliolinc_alg_omp_lowmem_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
     if(status!=0) {
       cerr << "ERROR: heliolinc_alg_omp_lowmem_streaming failed with status " << status << "\n";
       return(status);
     }
   } else {
-    status=heliolinc_alg_omp_lowmem(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
+    if(config.use_uint) status=heliolinc_alg_omp_lowmem(image_log, detvec, uint_tracklets, uint_trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
+    else status=heliolinc_alg_omp_lowmem(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, sumfile, clust2detfile, bool(do_dedup));
     if(status!=0) {
       cerr << "ERROR: heliolinc_alg_omp_lowmem failed with status " << status << "\n";
       return(status);
