@@ -45267,7 +45267,7 @@ struct KernelChoice {
   int dbscan;     // DBSCAN instead of the k-d tree range query
   int NotKepler;  // Taylor series instead of the Keplerian solver
   int sad;        // SAD tracklet rejection
-  int use_uint;   // uint_tracklet / uint_pair inputs
+  int use_smalltrk;   // uint_tracklet / uint_pair inputs
 };
 
 // Ari's trk2statevec_fgfunc_TNV_uint always applies the SAD test. For uint runs
@@ -45308,8 +45308,8 @@ static int decode_kernel_choice(const HeliolincConfig &config, bool uint_input, 
     cerr << "ERROR: use_rr and use_dbscan cannot both be set: there is no RR clustering with DBSCAN\n";
     return(1);
   }
-  if((config.use_uint ? 1 : 0) != kc.use_uint) {
-    cerr << "ERROR: use_uint = " << config.use_uint << " but the tracklet inputs are " << (kc.use_uint ? "uint_tracklet" : "tracklet") << "\n";
+  if((config.use_smalltrk ? 1 : 0) != kc.use_smalltrk) {
+    cerr << "ERROR: use_smalltrk = " << config.use_smalltrk << " but the tracklet inputs are " << (kc.use_smalltrk ? "uint_tracklet" : "tracklet") << "\n";
     return(1);
   }
   if(kc.sad && config.veltol_changerad <= 0.0) {
@@ -45320,12 +45320,12 @@ static int decode_kernel_choice(const HeliolincConfig &config, bool uint_input, 
     cerr << "ERROR: SAD tracklet rejection (tanveltol > 0) is not supported yet with universal variables, RR matching or the Taylor series\n";
     return(1);
   }
-  if(kc.use_uint && (kc.univar || kc.rr || kc.NotKepler || kc.dbscan || kc.kdR)) {
+  if(kc.use_smalltrk && (kc.univar || kc.rr || kc.NotKepler || kc.dbscan || kc.kdR)) {
     cerr << "ERROR: uint inputs are not supported yet with universal variables, RR matching, the Taylor series, DBSCAN\n";
     cerr << "or the position-only k-d tree; they need f and g functions, the Keplerian solver and the k-d tree\n";
     return(1);
   }
-  if(kc.use_uint && (detnum>=UINT_MAX || trknum>=UINT_MAX)) {
+  if(kc.use_smalltrk && (detnum>=UINT_MAX || trknum>=UINT_MAX)) {
     cerr << "ERROR: uint inputs need fewer than " << UINT_MAX << " detections and tracklets; got " << detnum << " and " << trknum << "\n";
     return(1);
   }
@@ -45338,7 +45338,7 @@ static void print_kernel_choice(const HeliolincConfig &config, const KernelChoic
        << ", " << (kc.NotKepler ? "Taylor series" : "Keplerian solver")
        << ", " << (kc.rr ? "RR (positions at two reference times)" : "position+velocity")
        << ", " << (kc.dbscan ? "DBSCAN" : (kc.kdR ? "position-only k-d tree" : "k-d tree"))
-       << ", " << (kc.use_uint ? "uint inputs" : "standard inputs") << "\n";
+       << ", " << (kc.use_smalltrk ? "small (uint) tracklets" : "standard tracklets") << "\n";
   if(kc.sad) cout << "SAD tracklet rejection ON: tanveltol " << config.tanveltol << " km/s, veltol_changerad " << config.veltol_changerad << " AU\n";
   else cout << "SAD tracklet rejection off (tanveltol <= 0)\n";
 }
@@ -45382,7 +45382,7 @@ static int lowmem_cluster_one_hyp(const vector <hlimage> &image_log, const vecto
   return(0);
 }
 
-// uint_tracklet / uint_pair inputs (use_uint = 1): trk2statevec_fgfunc_TNV_uint and
+// uint_tracklet / uint_pair inputs (use_smalltrk = 1): trk2statevec_fgfunc_TNV_uint and
 // form_clusters_kd4_lowmem_uint, the only uint kernels so far.
 static int lowmem_cluster_one_hyp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const HeliolincConfig &config, const KernelChoice &kc, double chartimescale, const point3d &Earthrefpos, double heliodist, double heliovel, double helioacc, long accelct, vector <shortclust> &outclust, vector <uint_pair> &clust2det)
 {
@@ -45919,7 +45919,7 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
   return(heliolinc_alg_omp_lowmem_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
 }
 
-// uint_tracklet / uint_pair inputs (use_uint = 1)
+// uint_tracklet / uint_pair inputs (use_smalltrk = 1)
 int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
   return(heliolinc_alg_omp_lowmem_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
@@ -46083,7 +46083,7 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
   return(heliolinc_alg_omp_lowmem_streaming_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
 }
 
-// uint_tracklet / uint_pair inputs (use_uint = 1)
+// uint_tracklet / uint_pair inputs (use_smalltrk = 1)
 int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
   return(heliolinc_alg_omp_lowmem_streaming_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
@@ -46130,7 +46130,7 @@ static int cluster_one_hyp(const vector <hlimage> &image_log, const vector <hlde
   return(0);
 }
 
-// uint_tracklet / uint_pair inputs (use_uint = 1): trk2statevec_fgfunc_TNV_uint and
+// uint_tracklet / uint_pair inputs (use_smalltrk = 1): trk2statevec_fgfunc_TNV_uint and
 // form_clusters_kd4_uint (Ari's), the only uint kernels so far.
 static int cluster_one_hyp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const HeliolincConfig &config, const KernelChoice &kc, double chartimescale, const point3d &Earthrefpos, double heliodist, double heliovel, double helioacc, vector <hlclust> &outclust, vector <longpair> &clust2det)
 {
@@ -46314,7 +46314,7 @@ int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet
   return(heliolinc_alg_omp_rhs_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
 }
 
-// uint_tracklet / uint_pair inputs (use_uint = 1)
+// uint_tracklet / uint_pair inputs (use_smalltrk = 1)
 int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
   return(heliolinc_alg_omp_rhs_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
@@ -46473,12 +46473,41 @@ int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vec
   return(heliolinc_alg_omp_rhs_streaming_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
 }
 
-// uint_tracklet / uint_pair inputs (use_uint = 1)
+// uint_tracklet / uint_pair inputs (use_smalltrk = 1)
 int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
   return(heliolinc_alg_omp_rhs_streaming_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, do_dedup));
 }
 
+
+// heliolinc_alg_omp_select: OpenMP heliolinc in the mode chosen by config:
+//   use_smallclust 0|1  full hlclust/longpair records (heliolinc_alg_omp_rhs*) or
+//                       small shortclust/uint_pair records (heliolinc_alg_omp_lowmem*)
+//   use_streaming  0|1  all clusters in RAM, or per-hypothesis files deduplicated at the end
+// Cross-hypothesis duplicates are always removed.  The kernel flags (use_univar,
+// use_dbscan, use_rr, use_taylor, tanveltol, use_smalltrk) are read by the entry
+// point it calls.  Output: {outsum_prefix}.txt and {clust2det_prefix}.csv.
+template <class Trk, class T2D>
+static int heliolinc_alg_omp_select_impl(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <Trk> &tracklets, const vector <T2D> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix)
+{
+  if(config.use_smallclust) {
+    if(config.use_streaming) return(heliolinc_alg_omp_lowmem_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, true));
+    return(heliolinc_alg_omp_lowmem(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, true));
+  }
+  if(config.use_streaming) return(heliolinc_alg_omp_rhs_streaming(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, true));
+  return(heliolinc_alg_omp_rhs(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix, true));
+}
+
+int heliolinc_alg_omp_select(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix)
+{
+  return(heliolinc_alg_omp_select_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix));
+}
+
+// Small (uint) tracklet storage (use_smalltrk = 1)
+int heliolinc_alg_omp_select(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix)
+{
+  return(heliolinc_alg_omp_select_impl(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outsum_prefix, clust2det_prefix));
+}
 
 // heliolinc_highgrade: November 24, 2025
 // Using conventions from heliolinc_alg_all, but 

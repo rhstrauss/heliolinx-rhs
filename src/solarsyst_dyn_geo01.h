@@ -467,7 +467,10 @@ struct HeliolincConfig {
                                   // velocity tolerance still applies.
                                   // SAD tracklet rejection runs only when tanveltol and veltol_changerad are
                                   // both positive; the OpenMP programs set both to -1 (off) unless given.
-  int use_uint = 0;            // 1 = tracklets and trk2det in the memory-efficient uint_tracklet / uint_pair forms
+  int use_smalltrk = 0;        // 1 = small (uint) tracklet storage: uint_tracklet / uint_pair instead of tracklet / longpair
+  int use_smallclust = 0;      // 1 = small (lowmem) cluster records during the run: shortclust / uint_pair instead of hlclust / longpair
+  int use_streaming = 0;       // 1 = write each hypothesis's clusters to its own files and deduplicate them at the end
+                               //     (resumable, bounded memory); 0 = keep all clusters in RAM. Duplicates are always removed.
   int use_dbscan = 0;          // 1 = cluster with DBSCAN instead of the k-d tree range query
   int use_rr = 0;              // 1 = match positions at two reference times (heliolinc_RR) instead of position+velocity
   int use_taylor = 0;          // 1 = propagate with a Taylor series instead of the Keplerian solver
@@ -2073,6 +2076,8 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
 int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
 int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
 int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup=true);
+int heliolinc_alg_omp_select(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix);
+int heliolinc_alg_omp_select(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <uint_tracklet> &tracklets, const vector <uint_pair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix);
 int heliolinc_highgrade(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, long minobsnum, vector <hldet> &outdet);
 int heliolinc_highgrade2(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, long minobsnum, vector <hldet> &outdet);
 int heliolinc_alg_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
