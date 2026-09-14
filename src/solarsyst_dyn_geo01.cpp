@@ -2354,7 +2354,7 @@ long double cluster_stats6D01(const vector <KD_point6LDx2> &cluster, vector <lon
 #define MINSPAN 1.0 // Temporal span must be at least this large (in days) for a bona fide cluster
 #define MINDAYSTEPS 2 // A bona fide cluster must have at least this many intra-point
                       // time intervals greater than INTRANIGHTSTEP days.
-#define INTRANIGHTSTEP 0.3 // Minimum interval in days between successive points
+#define INTRANIGHTSTEP 0.2 // Minimum interval in days between successive points
                            // in a tracklet, to enable them to be counted as being
                            // on separate nights.
 int DBSCAN_6D01(vector <KD_point6LDx2> &kdtree, long double clustrad, int npt, const vector <det_bsc> &detvec, const vector <string> &det_id_vec, vector <KD6_clust> &outclusters, string rmsfile)
