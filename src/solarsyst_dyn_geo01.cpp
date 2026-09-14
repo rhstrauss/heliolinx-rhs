@@ -33947,7 +33947,7 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
   return(0);
 }
 
-#define TAN_DEBUG 0
+#define TAN_DEBUG 1
 
 // trk2statevec_fgfunc_TNV: August 21, 2026:
 // Like trk2statevec_fgfunc, but rejects tracklets whose state-vector
@@ -34135,7 +34135,6 @@ int trk2statevec_fgfunc_TNV(const vector <hlimage> &image_log, const vector <tra
 	// second observations, and targpos1 and targvel1 are the tracklet position and velocity
 	// at the midpoint of the tracklet.
 
-	if(tanveltol > 0.0) { // SAD tracklet rejection; tanveltol <= 0 turns it off
 	// Calculate the heliocentric tangential velocity implied by the tracklet.
 	double heliorad = vecabs3d(targpos1);
 	double radvel = dotprod3d(targpos1,targvel1)/heliorad;
@@ -34162,7 +34161,6 @@ int trk2statevec_fgfunc_TNV(const vector <hlimage> &image_log, const vector <tra
 	  // tracklet, meaning its heliocentric tangential velocity is inconsistent with that
 	  // implied by the hypothesis.
 	} else if(TAN_DEBUG) cout << "Not a SAD tracklet: accepted\n";
-	} // end of SAD tracklet rejection
 	
 	// Begin new stuff added to eliminate 'globs'
 	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
@@ -43436,8 +43434,7 @@ int lowmem_to_hlclust(const vector <hldet> &detvec, const vector <shortclust> &o
 
 // ================================================================
 // uint inputs and SAD tracklet rejection, ported verbatim from
-// heliolinx-aux 03e3411 (Ari Heinze) for use_uint, except that the SAD test
-// in trk2statevec_fgfunc_TNV_uint now runs only when tanveltol > 0.
+// heliolinx-aux 03e3411 (Ari Heinze), plus trk2statevec_fgfunc_TNV_quiet.
 // ================================================================
 
 // distradec01_uint: September 08, 2026
@@ -43750,6 +43747,300 @@ int read_uint_pair_file(string pairfile, vector <uint_pair> &pairvec, int verbos
 #define TAN_DEBUG 0
 #define UINT_DEBUG 0
 
+// trk2statevec_fgfunc_TNV_quiet: upstream trk2statevec_fgfunc_TNV, unchanged except
+// that it is compiled with TAN_DEBUG 0 (as in heliolinx-aux 03e3411), so it does not
+// print for every tracklet. Used for SAD tracklet rejection with standard tracklets;
+// can be removed once upstream sets TAN_DEBUG 0.
+static int trk2statevec_fgfunc_TNV_quiet(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, double tanveltol, double veltol_changerad, int NotKepler)
+{
+  allstatevecs={};
+  long imnum = image_log.size();
+  long imct=0;
+  long pairnum = tracklets.size();
+  long pairct=0;
+  int badpoint=0;
+  int status1=0;
+  int status2=0;
+  int num_dist_solutions=0;
+  int solnct=0;
+  double mjdavg=0l;
+  vector <double> heliodistvec;
+  vector <double> heliotanvelvec;
+  double heliotanvel;
+  double RA,Dec;
+  long i1,i2;
+  i1=i2=0;
+  point6dx2 statevec1 = point6dx2(0l,0l,0l,0l,0l,0l,0,0);
+  point6ix2 stateveci = point6ix2(0,0,0,0,0,0,0,0);
+  point3d observerpos1 = point3d(0l,0l,0l);
+  point3d observerpos2 = point3d(0l,0l,0l);
+  point3d targpos1 = point3d(0l,0l,0l);
+  point3d targpos2 = point3d(0l,0l,0l);
+  point3d targvel1 = point3d(0l,0l,0l);
+  point3d targvel2 = point3d(0l,0l,0l);
+  point3d unitbary = point3d(0l,0l,0l);
+  point3d heliotanvel3D;
+  vector <point3d> targposvec1;
+  vector <point3d> targposvec2;
+  int glob_warning=0;
+  vector <double> deltavec1;
+  vector <double> deltavec2;
+  double absvelocity=0l;
+  double impactpar=0l;
+  double timediff=0l;
+  double E = 0.0l;
+  double v_inf = 0.0l;
+  double obstanvel = MAXTANVELCUT;
+  double meanobsdist,trackletarc,trackletangvel;
+  meanobsdist = trackletarc = trackletangvel = 0.0;
+  double temp_tanveltol;
+ 
+  // Calculate approximate heliocentric distances from the
+  // input quadratic approximation.
+  // Note: heliodist is in km, heliovel is in km/day, and helioacc is in km/day^2
+  heliodistvec={};
+  heliotanvelvec={};
+  if(NotKepler) {
+    cerr << "ERROR: cannot use non-Keplerian hypotheses with trk2statevec_fgfunc_TNV()\n";
+    return(10);
+  } else {
+    // Use Matt Holman's idea of getting heliocentric distance r(t) from an
+    // actual Keplerian orbit. It turns out that the same parameters (r, r-dot, and r-double-dot)
+    // that specify the old three-term Taylor Series also uniquely determine the Keplerian
+    // r(t) -- that is, they specify enough of the orbit that only one Keplerian solution
+    // for r(t) exists, even though other aspects of the orbit (i.e., orientation) are not
+    // specified.
+    // SOLVE FOR THE SQUARE OF THE TANGENTIAL VELOCITY
+    double localg = GMSUN_KM3_SEC2/DSQUARE(heliodist); // Units are km/sec^2
+    double physacc = helioacc/DSQUARE(SOLARDAY); // Units are km/sec^2
+    double vesc = 2.0*GMSUN_KM3_SEC2/heliodist; // this is the square of the escape velocity in km/sec
+    double tanvel = heliodist*(physacc+localg); // this is the square of the tangential velocity in km/sec
+    // CHECK FOR UNPHYSICAL AND UNBOUND CASES
+    if(tanvel<0.0l) {
+      cerr << fixed << setprecision(6) << "ERROR: hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << " is not possible for any trajectory\n";
+      return(1);
+    }
+    if(vesc < tanvel + LDSQUARE(heliovel/SOLARDAY)) {
+      cerr << fixed << setprecision(6) << "ERROR: hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << " is not possible for a bound orbit\n";
+      cerr << fixed << setprecision(6) << "vesc = " << sqrt(vesc) << ", tanvel = " << sqrt(tanvel) << ", heliovel = " << heliovel/SOLARDAY << ", totvel = " << sqrt(tanvel + LDSQUARE(heliovel/SOLARDAY)) << "\n";
+      return(1);
+    }
+    // If we get here, a sensible bound solution exists. Solve for the true tangential velocity
+    tanvel = sqrt(tanvel);
+    // Construct state vectors producing the required orbit (in the x-y plane, for simplicity).
+    point3d startpos = point3d(heliodist,0l,0l);
+    point3d startvel = point3d(heliovel/SOLARDAY,tanvel,0l);
+    point3d endpos = point3d(0l,0l,0l);
+    point3d endvel = point3d(0l,0l,0l);
+    for(imct=0;imct<imnum;imct++) {
+      // Integrate the orbit to find the heliocentric distance as a function of time.
+      status1 = Kepler_fg_func_int(GMSUN_KM3_SEC2, mjdref, startpos, startvel, image_log[imct].MJD, endpos, endvel);
+      if(status1!=0) {
+	cerr << "ERROR: Keplerian integration failed for r(t) hypothesis point " << heliodist/AU_KM << ", " << heliovel/AU_KM << ", " << -helioacc/DSQUARE(SOLARDAY)/localg << ", at MJD = " << image_log[imct].MJD << "\n";
+	return(status1);
+      }
+      // Calculate heliocentric tangential velocity.
+      double heliorad = vecabs3d(endpos);
+      double radvel = dotprod3d(endpos,endvel)/heliorad;
+      heliotanvel3D.x = endvel.x - radvel*endpos.x/heliorad;
+      heliotanvel3D.y = endvel.y - radvel*endpos.y/heliorad;
+      heliotanvel3D.z = endvel.z - radvel*endpos.z/heliorad;
+      heliotanvel = vecabs3d(heliotanvel3D);
+      // Load calculated Keplerian distance and tangential velocity to the image-based vectors
+      heliodistvec.push_back(heliorad);
+      heliotanvelvec.push_back(heliotanvel);
+    }
+  }
+  if(badpoint==0 && (long(heliodistvec.size())!=imnum || long(heliotanvelvec.size())!=imnum)) {
+    cerr << "ERROR: number of heliocentric distance values does\n";
+    cerr << "not match the number of input images!\n";
+    return(2);
+  }
+  for(pairct=0; pairct<pairnum; pairct++) {
+    badpoint=0;
+    // Obtain indices to the image_log and heliocentric distance vectors.
+    i1=tracklets[pairct].Img1;
+    i2=tracklets[pairct].Img2;
+    // Project the first point
+    RA = tracklets[pairct].RA1;
+    Dec = tracklets[pairct].Dec1;
+    celestial_to_stateunit(RA,Dec,unitbary);
+    observerpos1 = point3d(image_log[i1].X,image_log[i1].Y,image_log[i1].Z);
+    targposvec1={};
+    deltavec1={};
+    status1 = helioproj02(unitbary,observerpos1, heliodistvec[i1], deltavec1, targposvec1);
+    RA = tracklets[pairct].RA2;
+    Dec = tracklets[pairct].Dec2;
+    celestial_to_stateunit(RA,Dec,unitbary);
+    observerpos2 = point3d(image_log[i2].X,image_log[i2].Y,image_log[i2].Z);
+    targposvec2={};
+    deltavec2={};
+    status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
+    // Calculate the mean distance from the observer over the two points in the tracklet.
+    // If the projection equations had two solutions (meaning the hypothesis distance was
+    // interior to the Earth), use the larger solutions.
+    meanobsdist = (deltavec1[0] + deltavec2[0])/2.0;
+    if(status1==2 && status2==2 &&  deltavec1[1]>deltavec1[0] && deltavec2[1]>deltavec2[0]) meanobsdist = (deltavec1[1] + deltavec2[1])/2.0;
+    if(minimpactpar > 0.0 && minimpactpar < MAXTANVELCUT && meanobsdist < mingeoobs*AU_KM && status1 > 0 && status2 > 0 && badpoint==0) {
+      // New check added May 13, 2026: Calculate observer-centric tangential velocity,
+      // and reject the point if that is too low. The value of minimpactpar is here
+      // interpreted as a tangential velocity in km/sec, since it is nonzero but too small to
+      // make sense as an impact parameter in km.
+      trackletarc = distradec01(tracklets[pairct].RA1, tracklets[pairct].Dec1, tracklets[pairct].RA2, tracklets[pairct].Dec2)/DEGPRAD; // Tracklet arc in radians
+      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY; // Time difference in seconds
+      trackletangvel = trackletarc/timediff; // radians per second
+      obstanvel = trackletangvel*meanobsdist; // km/sec
+      if(obstanvel<minimpactpar) {
+	// Tangential velocity relative to the observer is too low
+	badpoint=1;
+      }
+    }
+    if(status1 > 0 && status2 > 0 && badpoint==0) {
+      // Calculate time difference between the observations
+      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
+      // Did helioproj find two solutions in both cases, or only one?
+      num_dist_solutions = status1;
+      if(num_dist_solutions > status2) num_dist_solutions = status2;
+      // Loop over solutions (num_dist_solutions can only be 1 or 2).
+      for(solnct=0; solnct<num_dist_solutions; solnct++) {
+	// Calculate the object's v_inf relative to the sun.
+	targpos1 = targposvec1[solnct];
+	targpos2 = targposvec2[solnct];
+	  
+	targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+
+	E = 0.5l*dotprod3d(targvel1,targvel1) - GMSUN_KM3_SEC2/vecabs3d(targpos1);
+	if(E>0.0l) v_inf = sqrt(2.0l*E);
+	else if(!isnormal(E)) v_inf=0.0l;
+	else v_inf = -sqrt(-2.0l*E); // This is a bit weird, but we allow the user to
+	                             // set a negative v_inf, if desired, to rule out
+	                             // objects that are barely bound to the sun.
+	if(v_inf>max_v_inf) continue; // Skip further calculation if v_inf is too high.
+	
+	// Perform calculations to check for consistency with the heliocentric
+	// tangential velocity implied by the hypothesis (Ben Engebreth's "SAD tracket" concept).
+	// Relevant quantities: deltavec1[solnct] and deltavec2[solnct] are the observer-centric
+	// distances at the first and second observations in km, heliotanvelvec[i1] and heliotanvelvec[i2]
+	// are the heliocentric tangential velocities implied by the hypothesis at the first and
+	// second observations, and targpos1 and targvel1 are the tracklet position and velocity
+	// at the midpoint of the tracklet.
+
+	// Calculate the heliocentric tangential velocity implied by the tracklet.
+	double heliorad = vecabs3d(targpos1);
+	double radvel = dotprod3d(targpos1,targvel1)/heliorad;
+	heliotanvel3D.x = targvel1.x - radvel*targpos1.x/heliorad;
+	heliotanvel3D.y = targvel1.y - radvel*targpos1.y/heliorad;
+	heliotanvel3D.z = targvel1.z - radvel*targpos1.z/heliorad;
+	double tracklet_tanvel = vecabs3d(heliotanvel3D);
+	double hypothesis_tanvel = 0.5*heliotanvelvec[i1] + 0.5*heliotanvelvec[i2];
+ 
+	// Scale velocity tolerance linearly with observer distance, normalized at 1AU.
+	temp_tanveltol = tanveltol*(0.5*deltavec1[solnct] + 0.5*deltavec2[solnct])/AU_KM;
+	// Revise upward if below a constant 'floor' values that applies within veltol_changerad AU of Earth.
+	if(temp_tanveltol < tanveltol*veltol_changerad/AU_KM) temp_tanveltol = tanveltol*veltol_changerad/AU_KM;
+
+	if(TAN_DEBUG) {
+	  cout << "Hypothesis radvel, tanvel: " << heliovel/SOLARDAY << " " << hypothesis_tanvel << "\n";
+	  cout << "Tracklet radvel, tanvel: " << radvel << " " << tracklet_tanvel << "\n";
+	  cout << "dist, temp_tanveltol: " << (0.5*deltavec1[solnct] + 0.5*deltavec2[solnct])/AU_KM << " " << temp_tanveltol << "\n";
+	}
+	// Compare tracklet vs. hypothesis tangential velocities
+	if(fabs(tracklet_tanvel - hypothesis_tanvel) > temp_tanveltol) {
+	  if(TAN_DEBUG) cout << "Tracklet is SAD: rejected\n";
+	  continue; // Skip further calculation: this is a 'SAD' (Swept Angle Discrepancy)
+	  // tracklet, meaning its heliocentric tangential velocity is inconsistent with that
+	  // implied by the hypothesis.
+	} else if(TAN_DEBUG) cout << "Not a SAD tracklet: accepted\n";
+	
+	// Begin new stuff added to eliminate 'globs'
+	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
+	// of detections that arise when the hypothetical heliocentric distance at a time when
+	// many observations are acquired is extremely close to, but slightly greater than,
+	// the heliocentric distance of the observer. Then detections over a large area of sky
+	// wind up with projected 3-D positions in an extremely small volume -- and furthermore,
+	// they all have similar velocities because the very small geocentric distance causes
+	// the inferred velocities to be dominated by the observer's motion and the heliocentric
+	// hypothesis, with only a negligible contribution from the on-sky angular velocity.
+	glob_warning=0;
+	if(deltavec1[solnct]<mingeoobs*AU_KM && deltavec2[solnct]<mingeoobs*AU_KM) {
+	  // New-start
+	  // Load target positions
+	  targpos1 = targposvec1[solnct];
+	  targpos2 = targposvec2[solnct];
+	  // Calculate positions relative to observer
+	  targpos1.x -= observerpos1.x;
+	  targpos1.y -= observerpos1.y;
+	  targpos1.z -= observerpos1.z;
+	    
+	  targpos2.x -= observerpos2.x;
+	  targpos2.y -= observerpos2.y;
+	  targpos2.z -= observerpos2.z;
+	    
+	  // Calculate velocity relative to observer
+	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
+   
+	  // Calculate impact parameter (past or future).
+	  absvelocity = vecabs3d(targvel1);
+	  impactpar = dotprod3d(targpos1,targvel1)/absvelocity;
+	  // Effectively, we've projected targpos1 onto the velocity
+	  // vector, and impactpar temporarily holds the magnitude of this projection.
+	  // Subtract off the projection of the distance onto the velocity unit vector
+	  targpos1.x -= impactpar*targvel1.x/absvelocity;
+	  targpos1.y -= impactpar*targvel1.y/absvelocity;
+	  targpos1.z -= impactpar*targvel1.z/absvelocity;
+	  // Now targpos1 is the impact parameter vector at projected closest approach.
+	  impactpar  = vecabs3d(targpos1); // Now impactpar is really the impact parameter
+	  if(impactpar<=minimpactpar) {
+	    // The hypothesis implies the object already passed within minimpactpar km of the Earth
+	    // in the likely case that minimpactpar has been set to imply an actual impact,
+	    // it's not our problem anymore.
+	    glob_warning=1;
+	  }
+	}
+	if(!glob_warning) {
+	  targpos1 = targposvec1[solnct];
+	  targpos2 = targposvec2[solnct];
+	  
+	  targvel1.x = (targpos2.x - targpos1.x)/timediff;
+	  targvel1.y = (targpos2.y - targpos1.y)/timediff;
+	  targvel1.z = (targpos2.z - targpos1.z)/timediff;
+
+	  targpos1.x = 0.5L*targpos2.x + 0.5L*targpos1.x;
+	  targpos1.y = 0.5L*targpos2.y + 0.5L*targpos1.y;
+	  targpos1.z = 0.5L*targpos2.z + 0.5L*targpos1.z;
+      
+	  // Integrate orbit to the reference time.
+	  mjdavg = 0.5l*image_log[i1].MJD + 0.5l*image_log[i2].MJD;
+	  status1 = Kepler_fg_func_int(GMSUN_KM3_SEC2,mjdavg,targpos1,targvel1,mjdref,targpos2,targvel2);
+	  if(status1 == 0 && badpoint==0) {
+	    statevec1 = point6dx2(targpos2.x,targpos2.y,targpos2.z,chartimescale*targvel2.x,chartimescale*targvel2.y,chartimescale*targvel2.z,pairct,0);
+	    // Note that the multiplication by chartimescale converts velocities in km/sec
+	    // to units of km, for apples-to-apples comparison with the positions.
+	    stateveci = conv_6d_to_6i(statevec1,INTEGERIZING_SCALEFAC);
+	    allstatevecs.push_back(stateveci);
+	  } else {
+	    // Kepler integration encountered unphysical situation.
+	    continue;
+	  }
+	}
+      }
+    } else {
+      badpoint=1;
+      // Heliocentric projection found no physical solution.
+      continue;
+    }
+  }
+  return(0);
+}
+
 // trk2statevec_fgfunc_TNV_uint: September 08, 2026:
 // Like trk2statevec_fgfunc, but rejects tracklets whose state-vector
 // tangential velocities differ from the tangential velocity
@@ -43949,7 +44240,6 @@ int trk2statevec_fgfunc_TNV_uint(const vector <hlimage> &image_log, const vector
 	// second observations, and targpos1 and targvel1 are the tracklet position and velocity
 	// at the midpoint of the tracklet.
 
-	if(tanveltol > 0.0) { // SAD tracklet rejection; tanveltol <= 0 turns it off
 	// Calculate the heliocentric tangential velocity implied by the tracklet.
 	double heliorad = vecabs3d(targpos1);
 	double radvel = dotprod3d(targpos1,targvel1)/heliorad;
@@ -43976,7 +44266,6 @@ int trk2statevec_fgfunc_TNV_uint(const vector <hlimage> &image_log, const vector
 	  // tracklet, meaning its heliocentric tangential velocity is inconsistent with that
 	  // implied by the hypothesis.
 	} else if(UINT_DEBUG) cout << "Not a SAD tracklet: accepted\n";
-	} // end of SAD tracklet rejection
 	
 	// Begin new stuff added to eliminate 'globs'
 	// These are spurious linkages of unreasonably large numbers (typically tens of thousands)
@@ -44967,7 +45256,8 @@ int form_clusters_kd4_lowmem_uint(const vector <point6ix2> &allstatevecs, const 
 // flags use_rr, use_dbscan and use_taylor; use_univar 2-15 is the older combined
 // code (+1 universal variables, 2/3 RR, 4/5 position-only k-d tree, 6/7 DBSCAN,
 // +8 Taylor series) and cannot be mixed with those flags.  SAD tracklet
-// rejection is on when tanveltol > 0.  uint inputs and SAD rejection are
+// rejection is on when tanveltol > 0 (HeliolincConfig keeps upstream's defaults,
+// 1000 km/s and 0.01 AU; the OpenMP programs set both to -1, i.e. off, unless given).  uint inputs and SAD rejection are
 // supported with f and g functions, the Keplerian solver, and r+v matching
 // (plus, for uint, the k-d tree), the path of Ari's heliolinc_TNV(_uint).
 struct KernelChoice {
@@ -44979,6 +45269,11 @@ struct KernelChoice {
   int sad;        // SAD tracklet rejection
   int use_uint;   // uint_tracklet / uint_pair inputs
 };
+
+// Ari's trk2statevec_fgfunc_TNV_uint always applies the SAD test. For uint runs
+// with SAD rejection off it gets this tolerance (km/s), far above any possible
+// velocity difference, so it never rejects a tracklet.
+static const double SAD_OFF_TANVELTOL = 1.0e30;
 
 static bool is_uint_input(const vector <tracklet> &tracklets) { return(false); }
 static bool is_uint_input(const vector <uint_tracklet> &tracklets) { return(true); }
@@ -45067,7 +45362,7 @@ static int lowmem_cluster_one_hyp(const vector <hlimage> &image_log, const vecto
   } else if(kc.rr && kc.univar) {
     status = trk2statevec_univarRR(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, kc.NotKepler, config.verbose);
   } else if(kc.sad) {
-    status = trk2statevec_fgfunc_TNV(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, config.tanveltol, config.veltol_changerad, kc.NotKepler);
+    status = trk2statevec_fgfunc_TNV_quiet(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, config.tanveltol, config.veltol_changerad, kc.NotKepler);
   } else {
     status = trk2statevec_fgfunc(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, kc.NotKepler);
   }
@@ -45097,7 +45392,7 @@ static int lowmem_cluster_one_hyp(const vector <hlimage> &image_log, const vecto
 
   outclust.clear();
   clust2det.clear();
-  status = trk2statevec_fgfunc_TNV_uint(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, config.tanveltol, config.veltol_changerad, kc.NotKepler);
+  status = trk2statevec_fgfunc_TNV_uint(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, (kc.sad ? config.tanveltol : SAD_OFF_TANVELTOL), (kc.sad ? config.veltol_changerad : 1.0), kc.NotKepler);
   if(status==1 || status==2) return(status);
   if(allstatevecs.size()<=1) return(0); // No clusters possible
 
@@ -45815,7 +46110,7 @@ static int cluster_one_hyp(const vector <hlimage> &image_log, const vector <hlde
   } else if(kc.rr && kc.univar) {
     status = trk2statevec_univarRR(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, kc.NotKepler, config.verbose);
   } else if(kc.sad) {
-    status = trk2statevec_fgfunc_TNV(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, config.tanveltol, config.veltol_changerad, kc.NotKepler);
+    status = trk2statevec_fgfunc_TNV_quiet(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, config.tanveltol, config.veltol_changerad, kc.NotKepler);
   } else {
     status = trk2statevec_fgfunc(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, kc.NotKepler);
   }
@@ -45845,7 +46140,7 @@ static int cluster_one_hyp(const vector <hlimage> &image_log, const vector <hlde
 
   outclust.clear();
   clust2det.clear();
-  status = trk2statevec_fgfunc_TNV_uint(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, config.tanveltol, config.veltol_changerad, kc.NotKepler);
+  status = trk2statevec_fgfunc_TNV_uint(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, (kc.sad ? config.tanveltol : SAD_OFF_TANVELTOL), (kc.sad ? config.veltol_changerad : 1.0), kc.NotKepler);
   if(status==1 || status==2) return(status);
   if(allstatevecs.size()<=1) return(0); // No clusters possible
 

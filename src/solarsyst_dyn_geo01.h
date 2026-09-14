@@ -459,14 +459,14 @@ struct HeliolincConfig {
                                // we set it to positive values. In this case it is also necessary
                                // to set use_univar=1, since only the universal variable formulation
                                // can handle unbound orbits.
-  double tanveltol = -1.0;     // Maximum discrepancy in km/sec between heliocentric tangential velocity implied
+  double tanveltol = 1000.0;   // Maximum discrepancy in km/sec between heliocentric tangential velocity implied
                                // by the hypothesis and that actually calculated for a specific tracklet.
                                // This value scales linearly with distance-to-observer for distances greater
                                // than veltol_changerad AU, but remains constant at smaller distances.
-  double veltol_changerad = -1.0; // Minimum distance-to-observer, in AU, at which linear scaling of tangential
+  double veltol_changerad = 0.01; // Minimum distance-to-observer, in AU, at which linear scaling of tangential
                                   // velocity tolerance still applies.
-                                  // tanveltol <= 0 (the default) turns SAD tracklet rejection off;
-                                  // it runs only when tanveltol and veltol_changerad are both positive.
+                                  // SAD tracklet rejection runs only when tanveltol and veltol_changerad are
+                                  // both positive; the OpenMP programs set both to -1 (off) unless given.
   int use_uint = 0;            // 1 = tracklets and trk2det in the memory-efficient uint_tracklet / uint_pair forms
   int use_dbscan = 0;          // 1 = cluster with DBSCAN instead of the k-d tree range query
   int use_rr = 0;              // 1 = match positions at two reference times (heliolinc_RR) instead of position+velocity

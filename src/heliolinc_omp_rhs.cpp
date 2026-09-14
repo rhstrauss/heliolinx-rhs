@@ -225,6 +225,8 @@ int main(int argc, char *argv[])
   vector <hlradhyp> radhyp;
   vector <EarthState> earthpos;
   HeliolincConfig config;
+  config.tanveltol = -1.0;         // SAD tracklet rejection off unless -tanveltol and -tanvel_changerad are given
+  config.veltol_changerad = -1.0;
   vector <hlclust> outclust;
   vector <longpair> clust2det;
   string imfile,pairdetfile,trackletfile,trk2detfile,planetfile,accelfile;
