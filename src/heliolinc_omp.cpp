@@ -180,7 +180,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc_omp -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
+  cerr << "Usage: heliolinc_omp -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads(default_1,_0=OpenMP_default) -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc_omp -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -190,6 +190,7 @@ static void show_usage()
     
 int main(int argc, char *argv[])
 {
+  int n_workers=1; // OpenMP threads: 1 (serial) unless -n_workers is given; -n_workers 0 = OpenMP runtime default
   vector <hldet> detvec = {};
   vector <hldet> pairdets = {};
   vector <hlimage> image_log;
@@ -454,6 +455,16 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-n_workers" || string(argv[i]) == "-nworkers" || string(argv[i]) == "-nw" || string(argv[i]) == "-nthreads" || string(argv[i]) == "-threads" || string(argv[i]) == "--n_workers" || string(argv[i]) == "--nworkers" || string(argv[i]) == "--threads") {
+      if(i+1 < argc) {
+	n_workers=stoi(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "n_workers keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--verbose" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--VERB") {
       if(i+1 < argc) {
 	//There is still something to read;
@@ -665,6 +676,17 @@ int main(int argc, char *argv[])
    return(1);
   }
   cout << "Read " << trk2det.size() << " data lines from trk2det file " << trk2detfile << "\n";
+
+  if(n_workers > 0) {
+    omp_set_num_threads(n_workers);
+    if(n_workers==1) cout << "Running on 1 OpenMP thread (serial default; use -n_workers N for more threads, or -n_workers 0 for the OpenMP runtime default)\n";
+    else cout << "Setting OpenMP thread count to " << n_workers << " (via -n_workers)\n";
+  } else if(n_workers==0) {
+    cout << "OpenMP thread count left to the runtime default (OMP_NUM_THREADS or all cores), via -n_workers 0\n";
+  } else {
+    cerr << "ERROR: -n_workers must be a positive thread count, or 0 for the OpenMP runtime default; got " << n_workers << "\n";
+    return(1);
+  }
 
   status=heliolinc_omp_all(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outclust, clust2det);
   if(status!=0) {

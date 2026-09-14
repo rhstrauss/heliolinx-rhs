@@ -180,7 +180,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads -streaming yes|no(default_yes:per-hyp_intermediate_files) -dedup yes|no(default_yes:cross-hyp_collapse_to_single_deduped_pair) -verbose verbosity\n";
+  cerr << "Usage: heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads(default_1,_0=OpenMP_default) -streaming yes|no(default_yes:per-hyp_intermediate_files) -dedup yes|no(default_yes:cross-hyp_collapse_to_single_deduped_pair) -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
   long i=0;
   long clustct=0;
   int status=0;
-  int n_workers=0; // 0 = leave OMP defaults / OMP_NUM_THREADS env alone
+  int n_workers=1; // OpenMP threads: 1 (serial) unless -n_workers is given; -n_workers 0 = OpenMP runtime default
   int streaming=1; // 1 = (default) per-hypothesis streaming output: writes
                    //     2*accelnum small files inside the OMP region,
                    //     freeing buffers as it goes. Keeps peak RAM bounded
@@ -751,9 +751,13 @@ int main(int argc, char *argv[])
 
   if(n_workers > 0) {
     omp_set_num_threads(n_workers);
-    cout << "Explicitly setting OpenMP thread count to " << n_workers << " (via -n_workers)\n";
+    if(n_workers==1) cout << "Running on 1 OpenMP thread (serial default; use -n_workers N for more threads, or -n_workers 0 for the OpenMP runtime default)\n";
+    else cout << "Setting OpenMP thread count to " << n_workers << " (via -n_workers)\n";
+  } else if(n_workers==0) {
+    cout << "OpenMP thread count left to the runtime default (OMP_NUM_THREADS or all cores), via -n_workers 0\n";
   } else {
-    cout << "OpenMP thread count left to runtime default (OMP_NUM_THREADS or omp_get_num_procs())\n";
+    cerr << "ERROR: -n_workers must be a positive thread count, or 0 for the OpenMP runtime default; got " << n_workers << "\n";
+    return(1);
   }
 
   if(streaming) {
