@@ -43442,6 +43442,10 @@ int lowmem_to_hlclust(const vector <hldet> &detvec, const vector <shortclust> &o
 //
 //   heliolinc_alg_omp_lowmem_streaming  -streaming yes (per-hyp files, memory-bounded)
 //   heliolinc_alg_omp_lowmem            -streaming no  (in RAM, like heliolinc_alg_lowmem)
+//
+// and, on the full hlclust/longpair classes of heliolinc_alg_all (no lowmem, no uint):
+//   heliolinc_alg_omp_rhs_streaming     -streaming yes
+//   heliolinc_alg_omp_rhs               -streaming no  (in RAM, like heliolinc_alg_all)
 // ================================================================
 
 // Project and cluster one heliocentric hypothesis: one pass of the hypothesis
@@ -43504,18 +43508,56 @@ static int append_lowmem_clusters(vector <shortclust> &clust, vector <uint_pair>
   return(0);
 }
 
+// Full-class counterpart of append_lowmem_clusters, for heliolinc_alg_omp_rhs.
+// Cluster numbers are long, so there is no UINT_MAX limit.
+static int append_clusters(vector <hlclust> &clust, vector <longpair> &clust2det, vector <hlclust> &add, vector <longpair> &add2det)
+{
+  long offset = clust.size();
+  for(long k=0; k<long(add.size()); k++) {
+    clust.push_back(add[k]);
+    clust.back().clusternum += offset;
+  }
+  for(long k=0; k<long(add2det.size()); k++) {
+    clust2det.push_back(longpair(add2det[k].i1 + offset, add2det[k].i2));
+  }
+  vector <hlclust>().swap(add);
+  vector <longpair>().swap(add2det);
+  return(0);
+}
+
+// The dedup tree below is written once for both cluster classes.  These
+// overloads pick the matching append and the matching upstream dedup:
+// link_dedup_lowmem2 for shortclust/uint_pair, link_dedup for hlclust/longpair.
+// Both keep the highest-metric copy of each detection set, check index vectors
+// on hash collisions, and renumber their output 0..n-1 in input order.
+static int append_clusters(vector <shortclust> &clust, vector <uint_pair> &clust2det, vector <shortclust> &add, vector <uint_pair> &add2det)
+{
+  return(append_lowmem_clusters(clust, clust2det, add, add2det));
+}
+
+static int dedup_clusters(const vector <shortclust> &inclust, const vector <uint_pair> &inclust2det, vector <shortclust> &outclust, vector <uint_pair> &outclust2det)
+{
+  return(link_dedup_lowmem2(inclust, inclust2det, outclust, outclust2det));
+}
+
+static int dedup_clusters(const vector <hlclust> &inclust, const vector <longpair> &inclust2det, vector <hlclust> &outclust, vector <longpair> &outclust2det)
+{
+  return(link_dedup(inclust, inclust2det, outclust, outclust2det));
+}
+
 // The bisection tree below is cut into blocks of at most this many hypotheses.
 // Blocks are deduplicated in parallel, one thread each; the merges above them,
 // which handle the largest vectors, run serially.
 static const long DEDUP_BLOCK_HYPS = 256;
 
 // Merge two duplicate-free cluster sets (lower hypotheses first) with
-// link_dedup_lowmem2, which keeps the highest-metric copy of each detection set,
+// dedup_clusters (link_dedup_lowmem2 or link_dedup), which keeps the highest-metric copy of each detection set,
 // checks index vectors on hash collisions, and renumbers its output 0..n-1 in
 // input order.  Its output is therefore valid input to the next merge, and
 // survivors stay in hypothesis order as in heliolinc_alg_lowmem.  The inputs
 // are emptied.
-static int dedup_merge_pair(vector <shortclust> &lowclust, vector <uint_pair> &low2det, vector <shortclust> &highclust, vector <uint_pair> &high2det, vector <shortclust> &outclust, vector <uint_pair> &outclust2det)
+template <class Clust, class Pair>
+static int dedup_merge_pair(vector <Clust> &lowclust, vector <Pair> &low2det, vector <Clust> &highclust, vector <Pair> &high2det, vector <Clust> &outclust, vector <Pair> &outclust2det)
 {
   outclust.clear();
   outclust2det.clear();
@@ -43530,11 +43572,11 @@ static int dedup_merge_pair(vector <shortclust> &lowclust, vector <uint_pair> &l
     outclust2det.swap(high2det);
     return(0);
   }
-  int status = append_lowmem_clusters(lowclust, low2det, highclust, high2det);
+  int status = append_clusters(lowclust, low2det, highclust, high2det);
   if(status!=0) return(status);
-  status = link_dedup_lowmem2(lowclust, low2det, outclust, outclust2det);
-  vector <shortclust>().swap(lowclust);
-  vector <uint_pair>().swap(low2det);
+  status = dedup_clusters(lowclust, low2det, outclust, outclust2det);
+  vector <Clust>().swap(lowclust);
+  vector <Pair>().swap(low2det);
   return(status);
 }
 
@@ -43544,22 +43586,22 @@ static int dedup_merge_pair(vector <shortclust> &lowclust, vector <uint_pair> &l
 //
 // (*load)(i, clust, c2d) must fill hypothesis i's clusters, numbered 0..n-1
 // with clust2det sorted by cluster number, and return 0 on success.
-template <class Loader>
-static int dedup_hyp_range(long lo, long hi, Loader *load, vector <shortclust> &outclust, vector <uint_pair> &outclust2det)
+template <class Loader, class Clust, class Pair>
+static int dedup_hyp_range(long lo, long hi, Loader *load, vector <Clust> &outclust, vector <Pair> &outclust2det)
 {
   outclust.clear();
   outclust2det.clear();
   if(hi<=lo) return(0);
   if(hi-lo == 1) {
-    vector <shortclust> rawclust;
-    vector <uint_pair> raw2det;
+    vector <Clust> rawclust;
+    vector <Pair> raw2det;
     int status = (*load)(lo, rawclust, raw2det);
     if(status!=0 || rawclust.empty()) return(status);
-    return(link_dedup_lowmem2(rawclust, raw2det, outclust, outclust2det));
+    return(dedup_clusters(rawclust, raw2det, outclust, outclust2det));
   }
   long mid = lo + (hi-lo)/2;
-  vector <shortclust> lowclust, highclust;
-  vector <uint_pair> low2det, high2det;
+  vector <Clust> lowclust, highclust;
+  vector <Pair> low2det, high2det;
   int status = dedup_hyp_range(lo, mid, load, lowclust, low2det);
   if(status==0) status = dedup_hyp_range(mid, hi, load, highclust, high2det);
   if(status!=0) return(status);
@@ -43581,7 +43623,8 @@ static void dedup_block_starts(long lo, long hi, vector <long> &starts)
 }
 
 // Merge finished blocks up the same bisection tree, consuming blocks in order.
-static int dedup_merge_blocks(long lo, long hi, vector <vector <shortclust>> &blockclust, vector <vector <uint_pair>> &block2det, long &nextblock, vector <shortclust> &outclust, vector <uint_pair> &outclust2det)
+template <class Clust, class Pair>
+static int dedup_merge_blocks(long lo, long hi, vector <vector <Clust>> &blockclust, vector <vector <Pair>> &block2det, long &nextblock, vector <Clust> &outclust, vector <Pair> &outclust2det)
 {
   outclust.clear();
   outclust2det.clear();
@@ -43593,8 +43636,8 @@ static int dedup_merge_blocks(long lo, long hi, vector <vector <shortclust>> &bl
     return(0);
   }
   long mid = lo + (hi-lo)/2;
-  vector <shortclust> lowclust, highclust;
-  vector <uint_pair> low2det, high2det;
+  vector <Clust> lowclust, highclust;
+  vector <Pair> low2det, high2det;
   int status = dedup_merge_blocks(lo, mid, blockclust, block2det, nextblock, lowclust, low2det);
   if(status==0) status = dedup_merge_blocks(mid, hi, blockclust, block2det, nextblock, highclust, high2det);
   if(status!=0) return(status);
@@ -43606,15 +43649,15 @@ static int dedup_merge_blocks(long lo, long hi, vector <vector <shortclust>> &bl
 // large merges on one thread stops every OpenMP thread's malloc arena from
 // growing to the size of the survivor set.  The bisection tree does not depend
 // on the thread count, so neither does the result.
-template <class Loader>
-static int dedup_all_hyps(long accelnum, Loader *load, vector <shortclust> &outclust, vector <uint_pair> &outclust2det)
+template <class Loader, class Clust, class Pair>
+static int dedup_all_hyps(long accelnum, Loader *load, vector <Clust> &outclust, vector <Pair> &outclust2det)
 {
   vector <long> blockstart;
   dedup_block_starts(0, accelnum, blockstart);
   long blocknum = blockstart.size();
   blockstart.push_back(accelnum);
-  vector <vector <shortclust>> blockclust(blocknum);
-  vector <vector <uint_pair>> block2det(blocknum);
+  vector <vector <Clust>> blockclust(blocknum);
+  vector <vector <Pair>> block2det(blocknum);
   int status=0;
   #pragma omp parallel for schedule(dynamic)
   for(long b=0; b<blocknum; b++) {
@@ -43651,6 +43694,27 @@ static int lowmem_from_hlclust(const vector <hlclust> &inclust, const vector <lo
   return(0);
 }
 
+// Clusters read back from one per-hypothesis file pair, in the class being
+// deduplicated: converted to shortclust/uint_pair for the lowmem path, or kept
+// as hlclust/longpair (after the same numbering check) for heliolinc_alg_omp_rhs.
+static int clusters_from_file_pair(vector <hlclust> &inclust, vector <longpair> &inclust2det, long hypindex, vector <shortclust> &outclust, vector <uint_pair> &outclust2det)
+{
+  return(lowmem_from_hlclust(inclust, inclust2det, hypindex, outclust, outclust2det));
+}
+
+static int clusters_from_file_pair(vector <hlclust> &inclust, vector <longpair> &inclust2det, long hypindex, vector <hlclust> &outclust, vector <longpair> &outclust2det)
+{
+  for(long k=0; k<long(inclust.size()); k++) {
+    if(inclust[k].clusternum != k) {
+      cerr << "ERROR: cluster number " << inclust[k].clusternum << " found at row " << k << " of the output for hypothesis " << hypindex << "\n";
+      return(5);
+    }
+  }
+  outclust.swap(inclust);
+  outclust2det.swap(inclust2det);
+  return(0);
+}
+
 // Write an hlclust/longpair output pair with write_clustersum_file and
 // write_clust2det_file.  If either write fails, both files are removed so that
 // neither a downstream step nor a resume can pick up a truncated pair.
@@ -43674,6 +43738,20 @@ static int write_lowmem_bundle(const vector <hldet> &detvec, const vector <short
   int status = lowmem_to_hlclust(detvec, clust, clust2det, heliodist, heliovel, helioacc, MJDref, outclust, outclust2det);
   if(status!=0) return(status);
   return(write_output_pair(outclust, outclust2det, sumfile, c2dfile));
+}
+
+// Write a cluster set in either class: compact clusters go through
+// write_lowmem_bundle; full hlclust records only get reference_MJD set, as
+// heliolinc_alg_all does after link_dedup, then write_output_pair.
+static int write_cluster_bundle(const vector <hldet> &detvec, const vector <shortclust> &clust, const vector <uint_pair> &clust2det, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, double MJDref, const string &sumfile, const string &c2dfile)
+{
+  return(write_lowmem_bundle(detvec, clust, clust2det, heliodist, heliovel, helioacc, MJDref, sumfile, c2dfile));
+}
+
+static int write_cluster_bundle(const vector <hldet> &detvec, vector <hlclust> &clust, const vector <longpair> &clust2det, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, double MJDref, const string &sumfile, const string &c2dfile)
+{
+  for(long i=0; i<long(clust.size()); i++) clust[i].reference_MJD = MJDref;
+  return(write_output_pair(clust, clust2det, sumfile, c2dfile));
 }
 
 // Per-hypothesis file names used by -streaming yes.
@@ -43705,13 +43783,15 @@ static int promote_perhyp_pair(const string &sumfile, const string &c2dfile)
 // Deduplicate the per-hypothesis output pairs of a streaming run, write the
 // bundled pair {outsum_prefix}.txt / {clust2det_prefix}.csv, and only then
 // remove the per-hyp files.  On any read, dedup, or write failure the per-hyp
-// files are left in place so the run can be resumed.
+// files are left in place so the run can be resumed.  Clust/Pair select the
+// cluster class used for the dedup (shortclust/uint_pair or hlclust/longpair).
+template <class Clust, class Pair>
 static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const string &clust2det_prefix, const vector <hldet> &detvec, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, const HeliolincConfig &config)
 {
   double t_dedup0 = omp_get_wtime();
   long total_raw_links = 0;
   cout << "\nStarting parallel cross-hypothesis dedup over " << accelnum << " per-hyp file pairs\n";
-  auto load_hyp_files = [&](long i, vector <shortclust> &clust, vector <uint_pair> &c2d) -> int {
+  auto load_hyp_files = [&](long i, vector <Clust> &clust, vector <Pair> &c2d) -> int {
     string sf = perhyp_sumfile(outsum_prefix, i);
     string cf = perhyp_c2dfile(clust2det_prefix, i);
     vector <hlclust> hl;
@@ -43722,10 +43802,10 @@ static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const 
     }
     #pragma omp atomic
     total_raw_links += long(hl.size());
-    return(lowmem_from_hlclust(hl, lp, i, clust, c2d));
+    return(clusters_from_file_pair(hl, lp, i, clust, c2d));
   };
-  vector <shortclust> finalclust;
-  vector <uint_pair> final2det;
+  vector <Clust> finalclust;
+  vector <Pair> final2det;
   int status = dedup_all_hyps(accelnum, &load_hyp_files, finalclust, final2det);
   if(status!=0) {
     cerr << "ERROR: cross-hypothesis dedup failed; per-hyp files are kept for resume\n";
@@ -43740,7 +43820,7 @@ static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const 
   string sumfile_out = outsum_prefix    + ".txt";
   string c2dfile_out = clust2det_prefix + ".csv";
   cout << "Writing " << finalclust.size() << " linkages to " << sumfile_out << " and " << c2dfile_out << "\n";
-  status = write_lowmem_bundle(detvec, finalclust, final2det, heliodist, heliovel, helioacc, config.MJDref, sumfile_out, c2dfile_out);
+  status = write_cluster_bundle(detvec, finalclust, final2det, heliodist, heliovel, helioacc, config.MJDref, sumfile_out, c2dfile_out);
   if(status!=0) return(status); // bundle not written: per-hyp files stay for resume
 
   long removed = 0;
@@ -43758,7 +43838,7 @@ static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const 
 //   {outsum_prefix}.txt  and  {clust2det_prefix}.csv
 // With do_dedup, cross-hypothesis duplicates are removed first (dedup_all_hyps).
 // Peak memory includes every raw cluster from every hypothesis; use
-// heliolinc_alg_omp_lowmem when that does not fit.
+// heliolinc_alg_omp_lowmem_streaming when that does not fit.
 int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
   long detnum = detvec.size();
@@ -44078,7 +44158,364 @@ int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const 
 
   if(global_error) return(global_error);
   if(!do_dedup) return(0); // Per-hyp files are the final product.
-  return(dedup_perhyp_files(accelnum, outsum_prefix, clust2det_prefix, detvec, heliodist, heliovel, helioacc, config));
+  return(dedup_perhyp_files<shortclust, uint_pair>(accelnum, outsum_prefix, clust2det_prefix, detvec, heliodist, heliovel, helioacc, config));
+}
+
+
+// Project and cluster one heliocentric hypothesis on the full hlclust/longpair
+// classes: one pass of the hypothesis loop in heliolinc_alg_all (the full-class
+// counterpart of lowmem_cluster_one_hyp).  Clusters are numbered from 0, with
+// clust2det rows in cluster order.  Returns the trk2statevec status: 0 = ok,
+// 1 = impossible hypothesis (skipped, no clusters), 2 = fatal.
+static int cluster_one_hyp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const HeliolincConfig &config, int use_univar, int NotKepler, double chartimescale, const point3d &Earthrefpos, double heliodist, double heliovel, double helioacc, vector <hlclust> &outclust, vector <longpair> &clust2det)
+{
+  vector <point6ix2> allstatevecs;
+  long realclusternum=0;
+  int status=0;
+
+  outclust.clear();
+  clust2det.clear();
+  if(use_univar == 1 || use_univar == 5 || use_univar == 7) {
+    status = trk2statevec_univar(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+  } else if(use_univar == 2) {
+    status = trk2statevec_fgfuncRR(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+  } else if(use_univar == 3) {
+    status = trk2statevec_univarRR(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler, config.verbose);
+  } else {
+    status = trk2statevec_fgfunc(image_log, tracklets, heliodist, heliovel, helioacc, chartimescale, allstatevecs, config.MJDref, config.mingeoobs, config.minimpactpar, config.max_v_inf, NotKepler);
+  }
+  if(status==1 || status==2) return(status);
+  if(allstatevecs.size()<=1) return(0); // No clusters possible
+
+  if(use_univar==6 || use_univar==7) {
+    status = form_clusters(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist, heliovel, helioacc, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+  } else if(use_univar==2 || use_univar==3) {
+    status = form_clusters_RR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist, heliovel, helioacc, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+  } else if(use_univar==4 || use_univar==5) {
+    status = form_clusters_kdR(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist, heliovel, helioacc, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+  } else {
+    status = form_clusters_kd4(allstatevecs, detvec, tracklets, trk2det, Earthrefpos, config.MJDref, heliodist, heliovel, helioacc, chartimescale, outclust, clust2det, realclusternum, config.clustrad, config.clustchangerad, config.dbscan_npt, config.mingeodist, config.geologstep, config.maxgeodist, config.mintimespan, config.minobsnights, config.verbose);
+  }
+  if(status!=0) cerr << "ERROR: form_clusters exited with error code " << status << "\n";
+  return(0);
+}
+
+// heliolinc_alg_omp_rhs: OpenMP version of heliolinc_alg_all (-streaming no).
+// The same parallel loop and dedup tree as heliolinc_alg_omp_lowmem, but on the
+// full hlclust/longpair classes: hypotheses are clustered by the form_clusters_*
+// functions heliolinc_alg_all uses, and duplicates are removed with link_dedup.
+// No lowmem classes and no uint.  One output pair is written at the end:
+//   {outsum_prefix}.txt  and  {clust2det_prefix}.csv
+// Peak memory includes every raw cluster from every hypothesis, in the full
+// classes; use heliolinc_alg_omp_rhs_streaming when that does not fit.
+int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
+{
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+  long accelct=0;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  // Echo config struct
+  cout << "Configuration parameters:\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km\n";
+  cout << "DBSCAN npt: " << config.dbscan_npt << "\n";
+  cout << "Min number of distinct observing nights for a valid linkage: " << config.minobsnights << "\n";
+  cout << "Min time span for a valid linkage: " << config.mintimespan << " days\n";
+  cout << "Min geocentric distance (center of innermost bin): " << config.mingeodist << " AU\n";
+  cout << "Max geocentric distance (will be exceeded by center only of the outermost bin): " << config.maxgeodist << " AU\n";
+  cout << "Logarthmic step size (and bin width) for geocentric distance bins: " << config.geologstep << "\n";
+  cout << "Minimum inferred geocentric distance for a valid tracklet: " << config.mingeoobs << " AU\n";
+  cout << "Minimum inferred impact parameter (w.r.t. Earth) for a valid tracklet: " << config.minimpactpar << " km\n";
+  if(config.verbose) cout << "Verbose output selected\n";
+
+  if(imnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty image catalog\n";
+    return(1);
+  } else if(pairnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty tracklet array\n";
+    return(1);
+  } else if(trk2detnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty trk2det array\n";
+    return(1);
+  } else if(accelnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty heliocentric hypothesis array\n";
+    return(1);
+  }
+
+  // Find MJD range for auto-MJDref
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(long i=0; i<long(detvec.size()); i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cout << "\nERROR: input positive-valued reference MJD is required\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      return(1);
+    } else {
+      cout << "\nUser did not input a positive-valued reference MJD in the\n";
+      cout << "acceptable range, so heliolinc will generate one internally\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << fixed << setprecision(2) << "Adopting reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  // Convert heliocentric radial motion hypothesis matrix to km/day units
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0; accelct<accelnum; accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  if(automjd) {
+    cout << "Reference MJD = " << config.MJDref << "\n";
+  }
+
+  // Shared error flag; set nonzero by any thread on fatal error
+  int global_error = 0;
+
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "nthreads = " << nt << "\n";
+  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling\n";
+
+  // One slot per hypothesis; each thread writes only its own slot.
+  vector <vector <hlclust>> hyp_clust_bufs(accelnum);
+  vector <vector <longpair>> hyp_c2d_bufs(accelnum);
+
+  #pragma omp parallel for schedule(dynamic)
+  for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
+    if(global_error) continue; // skip remaining work if a fatal error occurred
+    int thread_status = cluster_one_hyp(image_log, detvec, tracklets, trk2det, config, use_univar, NotKepler, chartimescale, Earthrefpos, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], hyp_clust_bufs[thread_accelct], hyp_c2d_bufs[thread_accelct]);
+    if(thread_status==2) {
+      cerr << "Fatal error from trk2statevec for hypothesis " << thread_accelct << "\n";
+      #pragma omp atomic write
+      global_error = thread_status;
+      continue;
+    }
+    #pragma omp critical
+    {
+      if(thread_status==1) cerr << "WARNING: hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << hyp_clust_bufs[thread_accelct].size() << " linkages\n";
+    }
+  } // end parallel for
+
+  if(global_error) return(global_error);
+
+  long total_raw_links = 0;
+  for(long i=0; i<accelnum; i++) total_raw_links += long(hyp_clust_bufs[i].size());
+  vector <hlclust> finalclust;
+  vector <longpair> final2det;
+
+  if(do_dedup) {
+    double t_dedup0 = omp_get_wtime();
+    // Leaves take (and thereby free) each hypothesis's buffers.
+    auto take_hyp_buffers = [&](long i, vector <hlclust> &clust, vector <longpair> &c2d) -> int {
+      clust.swap(hyp_clust_bufs[i]);
+      c2d.swap(hyp_c2d_bufs[i]);
+      return(0);
+    };
+    int status = dedup_all_hyps(accelnum, &take_hyp_buffers, finalclust, final2det);
+    if(status!=0) return(status);
+    if(total_raw_links > 0) {
+      cout << "Dedup kept " << finalclust.size() << " of " << total_raw_links << " raw linkages ("
+           << fixed << setprecision(1) << (100.0*finalclust.size()/double(total_raw_links)) << "%)\n";
+    }
+    cout << "Parallel dedup wall time: " << fixed << setprecision(2) << (omp_get_wtime() - t_dedup0) << " s\n";
+  } else {
+    // No cross-hyp dedup: concatenate hypotheses in order with global cluster numbers.
+    for(long i=0; i<accelnum; i++) {
+      int status = append_clusters(finalclust, final2det, hyp_clust_bufs[i], hyp_c2d_bufs[i]);
+      if(status!=0) return(status);
+    }
+  }
+
+  string sumfile_out = outsum_prefix    + ".txt";
+  string c2dfile_out = clust2det_prefix + ".csv";
+  cout << "Writing " << finalclust.size() << " linkages to " << sumfile_out << " and " << c2dfile_out << "\n";
+  return(write_cluster_bundle(detvec, finalclust, final2det, heliodist, heliovel, helioacc, config.MJDref, sumfile_out, c2dfile_out));
+}
+
+
+// heliolinc_alg_omp_rhs_streaming: streaming output (-streaming yes) on the full
+// hlclust/longpair path of heliolinc_alg_all; otherwise the same as
+// heliolinc_alg_omp_lowmem_streaming.  Each hypothesis writes its own output
+// pair as soon as it is clustered, so a thread holds at most one hypothesis's
+// state vectors and clusters:
+//   {outsum_prefix}_{N}.txt  and  {clust2det_prefix}_{N}.csv
+// Files are written as .tmp and renamed, and a hypothesis whose final-named pair
+// already exists is skipped, so a killed run can be resumed with the same command.
+// If do_dedup is true, dedup_perhyp_files then writes the bundled pair and removes
+// the per-hyp files; if false, the per-hyp files are the output.
+int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
+{
+  point3d Earthrefpos = point3d(0l,0l,0l);
+  long imnum = image_log.size();
+  long pairnum = tracklets.size();
+  long trk2detnum = trk2det.size();
+  long accelnum = radhyp.size();
+
+  vector <double> heliodist;
+  vector <double> heliovel;
+  vector <double> helioacc;
+  int use_univar=0;
+  int NotKepler=0;
+  int automjd=0;
+  long accelct=0;
+
+  if(config.use_univar>7 && config.use_univar<=15) {
+    use_univar = config.use_univar-8;
+    NotKepler=1;
+  } else {
+    use_univar = config.use_univar;
+    NotKepler=0;
+  }
+
+  // Echo config struct
+  cout << "Configuration parameters:\n";
+  cout << "MJD of reference time: " << config.MJDref << "\n";
+  cout << "DBSCAN clustering radius: " << config.clustrad << " km\n";
+  cout << "DBSCAN npt: " << config.dbscan_npt << "\n";
+  cout << "Min number of distinct observing nights for a valid linkage: " << config.minobsnights << "\n";
+  cout << "Min time span for a valid linkage: " << config.mintimespan << " days\n";
+  cout << "Min geocentric distance (center of innermost bin): " << config.mingeodist << " AU\n";
+  cout << "Max geocentric distance (will be exceeded by center only of the outermost bin): " << config.maxgeodist << " AU\n";
+  cout << "Logarthmic step size (and bin width) for geocentric distance bins: " << config.geologstep << "\n";
+  cout << "Minimum inferred geocentric distance for a valid tracklet: " << config.mingeoobs << " AU\n";
+  cout << "Minimum inferred impact parameter (w.r.t. Earth) for a valid tracklet: " << config.minimpactpar << " km\n";
+  if(config.verbose) cout << "Verbose output selected\n";
+
+  if(imnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty image catalog\n";
+    return(1);
+  } else if(pairnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty tracklet array\n";
+    return(1);
+  } else if(trk2detnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty trk2det array\n";
+    return(1);
+  } else if(accelnum<=0) {
+    cerr << "ERROR: heliolinc supplied with empty heliocentric hypothesis array\n";
+    return(1);
+  }
+
+  // Find MJD range for auto-MJDref
+  double minMJD = detvec[0].MJD;
+  double maxMJD = detvec[0].MJD;
+  for(long i=0; i<long(detvec.size()); i++) {
+    if(minMJD > detvec[i].MJD) minMJD = detvec[i].MJD;
+    if(maxMJD < detvec[i].MJD) maxMJD = detvec[i].MJD;
+  }
+  if(!isnormal(config.MJDref) || config.MJDref < minMJD || config.MJDref > maxMJD) {
+    if(config.autorun<=0) {
+      cout << "\nERROR: input positive-valued reference MJD is required\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      return(1);
+    } else {
+      cout << "\nUser did not input a positive-valued reference MJD in the\n";
+      cout << "acceptable range, so heliolinc will generate one internally\n";
+      cout << "MJD range is " << minMJD << " to " << maxMJD << "\n";
+      cout << fixed << setprecision(2) << "Suggested reference value is " << minMJD*0.5L + maxMJD*0.5L << "\n";
+      config.MJDref = round(minMJD*50.0l + maxMJD*50.0l)/100.0l;
+      cout << fixed << setprecision(2) << "Adopting reference MJD = " << config.MJDref << "\n";
+      automjd=1;
+    }
+  }
+
+  double chartimescale = (maxMJD - minMJD)*SOLARDAY/TIMECONVSCALE;
+  Earthrefpos = earthpos01(earthpos, config.MJDref);
+
+  // Convert heliocentric radial motion hypothesis matrix to km/day units
+  heliodist = heliovel = helioacc = {};
+  for(accelct=0; accelct<accelnum; accelct++) {
+    heliodist.push_back(radhyp[accelct].HelioRad * AU_KM);
+    heliovel.push_back(radhyp[accelct].R_dot * AU_KM);
+    helioacc.push_back(radhyp[accelct].R_dubdot * (-GMSUN_KM3_SEC2*SOLARDAY*SOLARDAY/heliodist[accelct]/heliodist[accelct]));
+  }
+
+  if(automjd) {
+    cout << "Reference MJD = " << config.MJDref << "\n";
+  }
+
+  // Shared error flag; set nonzero by any thread on fatal error
+  int global_error = 0;
+
+  int nt = 0;
+  #pragma omp parallel
+  { nt = omp_get_num_threads(); }
+  cout << "nthreads = " << nt << "\n";
+  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling (per-hyp streaming output)\n";
+
+  #pragma omp parallel for schedule(dynamic)
+  for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
+    if(global_error) continue; // skip remaining work if a fatal error occurred
+    string sumfile_hyp = perhyp_sumfile(outsum_prefix, thread_accelct);
+    string c2dfile_hyp = perhyp_c2dfile(clust2det_prefix, thread_accelct);
+    if(perhyp_pair_exists(sumfile_hyp, c2dfile_hyp)) {
+      #pragma omp critical
+      { cout << "Hypothesis " << thread_accelct << ": resume-skip (output exists)\n"; }
+      continue;
+    }
+
+    vector <hlclust> thread_clust;
+    vector <longpair> thread_c2d;
+    int thread_status = cluster_one_hyp(image_log, detvec, tracklets, trk2det, config, use_univar, NotKepler, chartimescale, Earthrefpos, heliodist[thread_accelct], heliovel[thread_accelct], helioacc[thread_accelct], thread_clust, thread_c2d);
+    if(thread_status==2) {
+      cerr << "Fatal error from trk2statevec for hypothesis " << thread_accelct << "\n";
+      #pragma omp atomic write
+      global_error = thread_status;
+      continue;
+    }
+
+    int wstat = write_cluster_bundle(detvec, thread_clust, thread_c2d, heliodist, heliovel, helioacc, config.MJDref, sumfile_hyp + ".tmp", c2dfile_hyp + ".tmp");
+    if(wstat==0) wstat = promote_perhyp_pair(sumfile_hyp, c2dfile_hyp);
+    if(wstat!=0) {
+      cerr << "ERROR: output for hypothesis " << thread_accelct << " was not written; stopping. Completed hypotheses are kept for resume.\n";
+      #pragma omp atomic write
+      global_error = wstat;
+      continue;
+    }
+
+    #pragma omp critical
+    {
+      if(thread_status==1) cerr << "WARNING: hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_clust.size() << " linkages -> " << sumfile_hyp << "\n";
+    }
+  } // end parallel for
+
+  if(global_error) return(global_error);
+  if(!do_dedup) return(0); // Per-hyp files are the final product.
+  return(dedup_perhyp_files<hlclust, longpair>(accelnum, outsum_prefix, clust2det_prefix, detvec, heliodist, heliovel, helioacc, config));
 }
 
 
