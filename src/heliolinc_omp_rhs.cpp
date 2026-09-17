@@ -1,8 +1,13 @@
-// heliolinc_omp_rhs: OpenMP heliolinc with optional per-hypothesis streaming
-// output, on the full hlclust/longpair path of heliolinc_alg_all (no lowmem
-// classes, no uint).  Options and output files are the same as
-// heliolinc_lowmem_omp. -use_smallclust 1 switches to the lowmem cluster records;
-// it calls heliolinc_alg_omp_select.
+// heliolinc_omp_rhs: OpenMP heliolinc, with every memory and kernel option in
+// one invocation.  All of them default to off, so the bare invocation does what
+// serial heliolinc does, on one thread:
+//   -n_workers N      OpenMP threads (default 1; 0 = the OpenMP default)
+//   -use_smallclust   small (shortclust/uint_pair) cluster records instead of full ones
+//   -use_smalltrk     small (uint) tracklets and trk2det
+//   -use_streaming    one output file pair per hypothesis, deduplicated at the end; resumable
+//   -tanveltol, -tanvel_changerad, -min_obstanvel   SAD tracklet rejection (Ari's TNV kernels)
+//   -useunivar, -use_rr, -use_dbscan, -use_taylor   propagation, matching and clustering choices
+// It calls heliolinc_alg_omp_select, which routes to the matching entry point.
 //
 // Implements in C++ (with some modifications) the Heliolinc3D
 // algorithm developed by Siegfried Eggl, which in turn was based
@@ -186,7 +191,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc_omp_rhs -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -use_smalltrk 0|1 -use_dbscan 0|1 -use_rr 0|1 -use_taylor 0|1 -tanveltol km/s(default_-1=SAD_off) -tanvel_changerad AU(default_-1) -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads(default_1,_0=OpenMP_default) -use_smallclust 0|1(default_0:full_records;1=lowmem_records) -use_streaming 0|1(default_0:in_RAM;1=per-hyp_files,resumable) -verbose verbosity\n";
+  cerr << "Usage: heliolinc_omp_rhs -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt cluster_minpts -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -use_smalltrk 0|1 -use_dbscan 0|1 -use_rr 0|1 -use_taylor 0|1 -min_obstanvel km/s(default_-1=off) -tanveltol km/s(default_-1=SAD_off) -tanvel_changerad AU(default_-1) -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -n_workers num_omp_threads(default_1,_0=OpenMP_default) -use_smallclust 0|1(default_0:full_records;1=lowmem_records) -use_streaming 0|1(default_0:in_RAM;1=per-hyp_files,resumable) -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliolinc_omp_rhs -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -366,15 +371,15 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    } else if(string(argv[i]) == "-npt" || string(argv[i]) == "-npoints" || string(argv[i]) == "-minpts" || string(argv[i]) == "-np" || string(argv[i]) == "--npt" || string(argv[i]) == "--dbscan_npt" || string(argv[i]) == "--DBSCANnpt") {
+    } else if(string(argv[i]) == "-npt" || string(argv[i]) == "-npoints" || string(argv[i]) == "-minpts" || string(argv[i]) == "-np" || string(argv[i]) == "--npt" || string(argv[i]) == "--cluster_minpts" || string(argv[i]) == "--DBSCANnpt") {
       if(i+1 < argc) {
 	//There is still something to read;
-	config.dbscan_npt=stoi(argv[++i]);
+	config.cluster_minpts=stoi(argv[++i]);
 	default_npt = 0;
 	i++;
       }
       else {
-	cerr << "DBSCAN npt keyword supplied with no corresponding argument\n";
+	cerr << "cluster_minpts keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -589,6 +594,14 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-min_obstanvel" || string(argv[i]) == "-minobstanvel" || string(argv[i]) == "-obstanvel" || string(argv[i]) == "-motv" || string(argv[i]) == "-otv") {
+      if(i+1 < argc && parse_real(argv[i+1], config.min_obstanvel)==0) {
+	i += 2;
+      } else {
+	cerr << "ERROR: -min_obstanvel (minimum tangential velocity w.r.t. the observer, km/s) expects a number\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-tanveltol" || string(argv[i]) == "-tanvel" || string(argv[i]) == "-veltol") {
       if(i+1 < argc && parse_real(argv[i+1], config.tanveltol)==0) {
 	i += 2;
@@ -630,7 +643,7 @@ int main(int argc, char *argv[])
       i++;
     }
   }
-  if(config.minobsnights > config.dbscan_npt) config.minobsnights = config.dbscan_npt; // Otherwise the low setting of dbscan_npt is not operative.
+  if(config.minobsnights > config.cluster_minpts) config.minobsnights = config.cluster_minpts; // Otherwise the low setting of cluster_minpts is not operative.
 
   if(argc<11)
     {
@@ -690,8 +703,8 @@ int main(int argc, char *argv[])
   else cout << "Min. geocentric distance for cluster scaling is " << config.clustchangerad << "AU\n";
   cout << "Minimum cluster radius, which will apply for all geocentric distances less\n";
   cout << "than " << config.clustchangerad << "AU, is " << config.clustrad*config.clustchangerad/REF_GEODIST << "km\n";
-  if(default_npt==1) cout << "Defaulting to DBSCAN npt (min. no. of tracklets in a linkage) = " << config.dbscan_npt << "\n";
-  else cout << "input DBSCAN npt (min. no. of tracklets in a linkage) is " << config.dbscan_npt << "\n";
+  if(default_npt==1) cout << "Defaulting to cluster_minpts (min. no. of tracklets in a linkage) = " << config.cluster_minpts << "\n";
+  else cout << "input cluster_minpts (min. no. of tracklets in a linkage) is " << config.cluster_minpts << "\n";
   if(default_minobsnights==1) cout << "Defaulting to minimum number of unique nights = " << config.minobsnights << "\n";
   else cout << "minimum number of unique nights is " << config.minobsnights << "\n";
   if(default_mintimespan==1) cout << "Defaulting to minimum time span for a linkage = " << config.mintimespan << " days\n";

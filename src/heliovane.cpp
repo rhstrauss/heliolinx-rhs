@@ -13,7 +13,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliovane -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliolon heliocentric_longitude_hypothesis_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -minsunelong minimum_solar_elongation(deg) -maxsunelong maximum_solar_elongation(deg) -min_incid_angle min_angle_of_incidence_between_observer_to_target_vector_and_heliocentric_vane(deg) -maxheliodist maximum_heliocentric_radius(AU) -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
+  cerr << "Usage: heliovane -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliolon heliocentric_longitude_hypothesis_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt cluster_minpts -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -minsunelong minimum_solar_elongation(deg) -maxsunelong maximum_solar_elongation(deg) -min_incid_angle min_angle_of_incidence_between_observer_to_target_vector_and_heliocentric_vane(deg) -maxheliodist maximum_heliocentric_radius(AU) -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
   cerr << "heliovane -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliolon heliocentric_longitude_hypothesis_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
@@ -169,15 +169,15 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    } else if(string(argv[i]) == "-npt" || string(argv[i]) == "-npoints" || string(argv[i]) == "-minpts" || string(argv[i]) == "-np" || string(argv[i]) == "--npt" || string(argv[i]) == "--dbscan_npt" || string(argv[i]) == "--DBSCANnpt") {
+    } else if(string(argv[i]) == "-npt" || string(argv[i]) == "-npoints" || string(argv[i]) == "-minpts" || string(argv[i]) == "-np" || string(argv[i]) == "--npt" || string(argv[i]) == "--cluster_minpts" || string(argv[i]) == "--DBSCANnpt") {
       if(i+1 < argc) {
 	//There is still something to read;
-	config.dbscan_npt=stoi(argv[++i]);
+	config.cluster_minpts=stoi(argv[++i]);
 	default_npt = 0;
 	i++;
       }
       else {
-	cerr << "DBSCAN npt keyword supplied with no corresponding argument\n";
+	cerr << "cluster_minpts keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
       i++;
     }
   }
-  if(config.minobsnights > config.dbscan_npt) config.minobsnights = config.dbscan_npt; // Otherwise the low setting of dbscan_npt is not operative.
+  if(config.minobsnights > config.cluster_minpts) config.minobsnights = config.cluster_minpts; // Otherwise the low setting of cluster_minpts is not operative.
 
 
   if(argc<11)
@@ -447,8 +447,8 @@ int main(int argc, char *argv[])
   else cout << "input clustering radius " << config.clustrad << "km\n";
   if(default_clustchangerad==1) cout << "Defaulting to min. geocentric distance for cluster scaling = " << config.clustchangerad << "AU\n";
   else cout << "Min. geocentric distance for cluster scaling is " << config.clustchangerad << "AU\n";
-  if(default_npt==1) cout << "Defaulting to DBSCAN npt (min. no. of tracklets in a linkage) = " << config.dbscan_npt << "\n";
-  else cout << "input DBSCAN npt (min. no. of tracklets in a linkage) is " << config.dbscan_npt << "\n";
+  if(default_npt==1) cout << "Defaulting to cluster_minpts (min. no. of tracklets in a linkage) = " << config.cluster_minpts << "\n";
+  else cout << "input cluster_minpts (min. no. of tracklets in a linkage) is " << config.cluster_minpts << "\n";
   if(default_minobsnights==1) cout << "Defaulting to minimum number of unique nights = " << config.minobsnights << "\n";
   else cout << "minimum number of unique nights is " << config.minobsnights << "\n";
   if(default_mintimespan==1) cout << "Defaulting to minimum time span for a linkage = " << config.mintimespan << " days\n";
