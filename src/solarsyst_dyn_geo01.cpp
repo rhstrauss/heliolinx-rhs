@@ -63682,49 +63682,412 @@ static int write_cluster_bundle(const vector <hldet> &detvec, vector <hlclust> &
 }
 
 // Per-hypothesis file names used by -streaming yes.
-static string perhyp_sumfile(const string &outsum_prefix, long i) { return(outsum_prefix + "_" + to_string(i) + ".txt"); }
-static string perhyp_c2dfile(const string &clust2det_prefix, long i) { return(clust2det_prefix + "_" + to_string(i) + ".csv"); }
+// ================================================================
+// Per-worker streaming output (September 2026)
+//
+// Each OpenMP worker appends the clusters it finds to its own pair of files,
+//   {outsum}_w<N>.txt  and  {clust2det}_w<N>.csv
+// so no two threads ever write the same file and the bulk output needs no locking.
+// One shared index file, {outsum}_index.txt, records where each hypothesis landed:
+//   hypno worker sum_offset sum_length c2d_offset c2d_length
+// This replaces one file pair per hypothesis, which cost about ten metadata
+// operations per hypothesis (create, rename, and later unlink) and produced over a
+// million files on a 500,000-hypothesis run.  It is now 2*nthreads+1 files, which
+// matters most on a networked or parallel filesystem, where every one of those
+// operations is a round trip (NFS) or a lock handoff (GPFS).
+//
+// The block text is exactly what the per-hypothesis files used to contain, and the
+// dedup tree still sees one hypothesis at a time, so the final output is unchanged.
+//
+// Resume: the index is the record of completed work.  A killed run can leave a
+// partial block at the end of a worker file, so recover_worker_files() keeps only
+// index records lying wholly inside their files, truncates each worker's files back
+// to that high-water mark, and rewrites the index before new work is appended.
+// ================================================================
+#include <unistd.h>
+#include <sstream>
 
-// Resume support: a hypothesis is complete when both final-named files exist.
-// Files are only ever given their final names by promote_perhyp_pair, after a
-// successful write, so a killed or failed run never leaves a partial pair here.
-static bool perhyp_pair_exists(const string &sumfile, const string &c2dfile)
+static string perworker_sumfile(const string &outsum_prefix, int w) { return(outsum_prefix + "_w" + to_string(w) + ".txt"); }
+static string perworker_c2dfile(const string &clust2det_prefix, int w) { return(clust2det_prefix + "_w" + to_string(w) + ".csv"); }
+static string perworker_indexfile(const string &outsum_prefix) { return(outsum_prefix + "_index.txt"); }
+
+// Where one hypothesis's output lives inside the worker files.
+class hypblock{
+public:
+  long hypno;
+  int worker;
+  long sum_off;
+  long sum_len;
+  long c2d_off;
+  long c2d_len;
+  hypblock() :hypno(-1), worker(-1), sum_off(0), sum_len(0), c2d_off(0), c2d_len(0) { }
+};
+
+// Open output streams and running offsets, one set per worker.
+class worker_output{
+public:
+  vector <ofstream> sumstream;
+  vector <ofstream> c2dstream;
+  vector <long> sumpos;
+  vector <long> c2dpos;
+  ofstream indexstream;
+};
+
+static long file_size_bytes(const string &path)
 {
-  ifstream t1(sumfile.c_str());
-  ifstream t2(c2dfile.c_str());
-  return(t1.good() && t2.good());
+  ifstream instream1(path.c_str(), std::ios::binary | std::ios::ate);
+  if(!instream1) return(-1);
+  return(long(instream1.tellg()));
 }
 
-// Rename a written .tmp pair to its final names.  If only the summary file is
-// renamed, resume still redoes the hypothesis, because it requires both names.
-static int promote_perhyp_pair(const string &sumfile, const string &c2dfile)
+// Serialize clusters exactly as write_clustersum_file/write_clust2det_file do, minus the header.
+static void append_clustersum_block(ostream &outstream1, const vector <hlclust> &outclust)
 {
-  if(std::rename((sumfile + ".tmp").c_str(), sumfile.c_str()) != 0 ||
-     std::rename((c2dfile + ".tmp").c_str(), c2dfile.c_str()) != 0) {
-    cerr << "ERROR: could not rename " << sumfile << ".tmp / " << c2dfile << ".tmp to their final names\n";
+  long clustct=0;
+  for(clustct=0 ; clustct<long(outclust.size()); clustct++) {
+    outstream1 << fixed << setprecision(3) << outclust[clustct].clusternum << "," << outclust[clustct].posRMS << "," << outclust[clustct].velRMS << "," << outclust[clustct].totRMS << ",";
+    outstream1 << fixed << setprecision(4) << outclust[clustct].astromRMS << ",";
+    outstream1 << fixed << setprecision(6) << outclust[clustct].pairnum << "," << outclust[clustct].timespan << "," << outclust[clustct].uniquepoints << "," << outclust[clustct].obsnights << "," << setprecision(12) << outclust[clustct].metric << setprecision(6) << "," << outclust[clustct].rating << ",";
+    outstream1 << fixed << setprecision(6) << outclust[clustct].reference_MJD << "," << outclust[clustct].heliohyp0 << "," << outclust[clustct].heliohyp1 << "," << outclust[clustct].heliohyp2 << ",";
+    outstream1 << fixed << setprecision(1) << outclust[clustct].posX << "," << outclust[clustct].posY << "," << outclust[clustct].posZ << ",";
+    outstream1 << fixed << setprecision(4) << outclust[clustct].velX << "," << outclust[clustct].velY << "," << outclust[clustct].velZ << ",";
+    outstream1 << fixed << setprecision(6) << outclust[clustct].orbit_a << "," << outclust[clustct].orbit_e << "," << outclust[clustct].orbit_incl << "," << outclust[clustct].orbit_MJD << ",";
+    outstream1 << fixed << setprecision(1) << outclust[clustct].orbitX << "," << outclust[clustct].orbitY << "," << outclust[clustct].orbitZ << ",";
+    outstream1 << fixed << setprecision(4) << outclust[clustct].orbitVX << "," << outclust[clustct].orbitVY << "," << outclust[clustct].orbitVZ << "," << outclust[clustct].orbit_eval_count << "\n";
+  }
+}
+
+static void append_clust2det_block(ostream &outstream1, const vector <longpair> &clust2det)
+{
+  long clustct=0;
+  for(clustct=0 ; clustct<long(clust2det.size()); clustct++) {
+    outstream1 << clust2det[clustct].i1 << "," << clust2det[clustct].i2 << "\n";
+  }
+}
+
+// Parse one line of the cluster summary format, field for field as read_clustersum_file does.
+static int parse_clustersum_line(const string &lnfromfile, hlclust &onecluster)
+{
+  string stest;
+  int startpoint = 0;
+  int endpoint = 0;
+  int badread = 0;
+  auto nextfield = [&]() -> bool {
+    if(badread!=0) return(false);
+    endpoint = get_csv_string01(lnfromfile, stest, startpoint);
+    startpoint = endpoint + 1;
+    if(endpoint<=0) { badread = 1; return(false); }
+    return(true);
+  };
+  auto getd = [&]() -> double { double v=0.0l; if(nextfield()) { try { v = stod(stest); } catch(...) { badread=1; } } return(v); };
+  auto geti = [&]() -> int { int v=0; if(nextfield()) { try { v = stoi(stest); } catch(...) { badread=1; } } return(v); };
+  auto getl = [&]() -> long { long v=0; if(nextfield()) { try { v = stol(stest); } catch(...) { badread=1; } } return(v); };
+
+  long clusternum = getl();
+  double posRMS = getd();
+  double velRMS = getd();
+  double totRMS = getd();
+  double astromRMS = getd();
+  int pairnum = geti();
+  double timespan = getd();
+  int uniquepoints = geti();
+  int obsnights = geti();
+  double metric = getd();
+  string rating = "NULL";
+  if(nextfield()) rating = stest;
+  double reference_MJD = getd();
+  double heliohyp0 = getd();
+  double heliohyp1 = getd();
+  double heliohyp2 = getd();
+  double posX = getd();
+  double posY = getd();
+  double posZ = getd();
+  double velX = getd();
+  double velY = getd();
+  double velZ = getd();
+  double orbit_a = getd();
+  double orbit_e = getd();
+  double orbit_incl = getd();
+  double orbit_MJD = getd();
+  double orbitX = getd();
+  double orbitY = getd();
+  double orbitZ = getd();
+  double orbitVX = getd();
+  double orbitVY = getd();
+  double orbitVZ = getd();
+  long orbit_eval_count = getl();
+  if(badread!=0) {
+    cerr << "ERROR: cannot parse cluster summary line: " << lnfromfile << "\n";
+    return(1);
+  }
+  onecluster = hlclust(clusternum, posRMS, velRMS, totRMS, astromRMS, pairnum, timespan, uniquepoints, obsnights, metric, rating, reference_MJD, heliohyp0, heliohyp1, heliohyp2, posX, posY, posZ, velX, velY, velZ, orbit_a, orbit_e, orbit_incl, orbit_MJD, orbitX, orbitY, orbitZ, orbitVX, orbitVY, orbitVZ, orbit_eval_count);
+  return(0);
+}
+
+static int parse_longpair_line(const string &lnfromfile, longpair &onepair)
+{
+  string stest;
+  long i1=0;
+  long i2=0;
+  int startpoint = 0;
+  int endpoint = get_csv_string01(lnfromfile, stest, startpoint);
+  if(endpoint<=0) { cerr << "ERROR: cannot parse clust2det line: " << lnfromfile << "\n"; return(1); }
+  try { i1 = stol(stest); } catch(...) { cerr << "ERROR: cannot parse clusternum from: " << lnfromfile << "\n"; return(1); }
+  startpoint = endpoint + 1;
+  endpoint = get_csv_string01(lnfromfile, stest, startpoint);
+  if(endpoint<=0) { cerr << "ERROR: cannot parse clust2det line: " << lnfromfile << "\n"; return(1); }
+  try { i2 = stol(stest); } catch(...) { cerr << "ERROR: cannot parse detnum from: " << lnfromfile << "\n"; return(1); }
+  onepair = longpair(i1,i2);
+  return(0);
+}
+
+static int read_worker_block(const string &path, long off, long len, string &buf)
+{
+  buf.clear();
+  if(len<=0) return(0);
+  ifstream instream1(path.c_str(), std::ios::binary);
+  if(!instream1) { cerr << "ERROR: can't open worker file " << path << "\n"; return(1); }
+  instream1.seekg(off);
+  buf.resize(size_t(len));
+  instream1.read(&buf[0], std::streamsize(len));
+  if(instream1.gcount() != std::streamsize(len)) {
+    cerr << "ERROR: short read of " << len << " bytes at offset " << off << " in " << path << "\n";
     return(1);
   }
   return(0);
 }
 
-// Deduplicate the per-hypothesis output pairs of a streaming run, write the
-// bundled pair {outsum_prefix}.txt / {clust2det_prefix}.csv, and only then
-// remove the per-hyp files.  On any read, dedup, or write failure the per-hyp
-// files are left in place so the run can be resumed.  Clust/Pair select the
-// cluster class used for the dedup (shortclust/uint_pair or hlclust/longpair).
+static int parse_block_clusters(const string &buf, vector <hlclust> &hl)
+{
+  hlclust onecluster;
+  size_t start = 0;
+  hl.clear();
+  while(start < buf.size()) {
+    size_t nl = buf.find('\n', start);
+    if(nl==string::npos) nl = buf.size();
+    if(nl>start) {
+      if(parse_clustersum_line(buf.substr(start, nl-start), onecluster)!=0) return(1);
+      hl.push_back(onecluster);
+    }
+    start = nl+1;
+  }
+  return(0);
+}
+
+static int parse_block_pairs(const string &buf, vector <longpair> &lp)
+{
+  longpair onepair;
+  size_t start = 0;
+  lp.clear();
+  while(start < buf.size()) {
+    size_t nl = buf.find('\n', start);
+    if(nl==string::npos) nl = buf.size();
+    if(nl>start) {
+      if(parse_longpair_line(buf.substr(start, nl-start), onepair)!=0) return(1);
+      lp.push_back(onepair);
+    }
+    start = nl+1;
+  }
+  return(0);
+}
+
+// Read the index, drop records whose blocks did not survive, truncate each worker's files
+// back to the surviving high-water mark, and rewrite the index.  Also used after the run to
+// re-read the complete index for dedup.
+static int recover_worker_files(const string &outsum_prefix, const string &clust2det_prefix, long accelnum, int nworkers, vector <hypblock> &blockindex, vector <char> &hyp_done, int verbose)
+{
+  vector <hypblock> raw;
+  hypblock b;
+  string lnfromfile;
+  blockindex.clear();
+  hyp_done.assign(size_t(accelnum), 0);
+  string idxfile = perworker_indexfile(outsum_prefix);
+  ifstream instream1(idxfile.c_str());
+  if(instream1) {
+    while(getline(instream1, lnfromfile)) {
+      if(lnfromfile.size()==0) continue;
+      std::istringstream iss(lnfromfile);
+      if(!(iss >> b.hypno >> b.worker >> b.sum_off >> b.sum_len >> b.c2d_off >> b.c2d_len)) continue; // partial final line
+      if(b.hypno<0 || b.hypno>=accelnum || b.worker<0 || b.sum_off<0 || b.sum_len<0 || b.c2d_off<0 || b.c2d_len<0) continue;
+      raw.push_back(b);
+    }
+    instream1.close();
+  }
+  int maxworker = nworkers-1;
+  for(long k=0; k<long(raw.size()); k++) if(raw[k].worker>maxworker) maxworker = raw[k].worker;
+  if(maxworker<0) maxworker = 0;
+  vector <long> ssize(size_t(maxworker+1), -1);
+  vector <long> csize(size_t(maxworker+1), -1);
+  for(int w=0; w<=maxworker; w++) {
+    ssize[w] = file_size_bytes(perworker_sumfile(outsum_prefix, w));
+    csize[w] = file_size_bytes(perworker_c2dfile(clust2det_prefix, w));
+  }
+  vector <long> shigh(size_t(maxworker+1), 0);
+  vector <long> chigh(size_t(maxworker+1), 0);
+  for(long k=0; k<long(raw.size()); k++) {
+    const hypblock &r = raw[k];
+    if(r.worker>maxworker) continue;
+    if(ssize[r.worker]<0 || csize[r.worker]<0) continue;                              // worker files gone
+    if(r.sum_off+r.sum_len > ssize[r.worker] || r.c2d_off+r.c2d_len > csize[r.worker]) continue; // block lost to a kill
+    if(hyp_done[r.hypno]) continue;                                                   // duplicate record
+    hyp_done[r.hypno] = 1;
+    blockindex.push_back(r);
+    if(r.sum_off+r.sum_len > shigh[r.worker]) shigh[r.worker] = r.sum_off+r.sum_len;
+    if(r.c2d_off+r.c2d_len > chigh[r.worker]) chigh[r.worker] = r.c2d_off+r.c2d_len;
+  }
+  // Throw away anything past the last complete block, so new output appends to clean files.
+  for(int w=0; w<=maxworker; w++) {
+    if(ssize[w]>shigh[w] && truncate(perworker_sumfile(outsum_prefix, w).c_str(), shigh[w])!=0) {
+      cerr << "ERROR: cannot truncate " << perworker_sumfile(outsum_prefix, w) << " to " << shigh[w] << " bytes\n";
+      return(1);
+    }
+    if(csize[w]>chigh[w] && truncate(perworker_c2dfile(clust2det_prefix, w).c_str(), chigh[w])!=0) {
+      cerr << "ERROR: cannot truncate " << perworker_c2dfile(clust2det_prefix, w) << " to " << chigh[w] << " bytes\n";
+      return(1);
+    }
+  }
+  if(long(blockindex.size()) != long(raw.size())) {
+    ofstream outstream1(idxfile.c_str(), std::ios::trunc);
+    if(!outstream1) { cerr << "ERROR: cannot rewrite the streaming index file " << idxfile << "\n"; return(1); }
+    for(long k=0; k<long(blockindex.size()); k++) {
+      outstream1 << blockindex[k].hypno << " " << blockindex[k].worker << " " << blockindex[k].sum_off << " " << blockindex[k].sum_len << " " << blockindex[k].c2d_off << " " << blockindex[k].c2d_len << "\n";
+    }
+    outstream1.close();
+    if(outstream1.fail()) { cerr << "ERROR: failed rewriting the streaming index file " << idxfile << "\n"; return(1); }
+  }
+  long ndone = long(blockindex.size());
+  if(ndone>0 && ndone<accelnum) {
+    cout << "Resuming: " << ndone << " hypotheses already recorded in " << idxfile << "; " << (accelnum-ndone) << " left to do\n";
+  }
+  if(verbose>=1) cout << "Streaming index: " << ndone << " complete hypothesis blocks over " << (maxworker+1) << " worker file pairs\n";
+  return(0);
+}
+
+static int open_worker_files(const string &outsum_prefix, const string &clust2det_prefix, int nworkers, worker_output &wout)
+{
+  wout.sumstream.resize(size_t(nworkers));
+  wout.c2dstream.resize(size_t(nworkers));
+  wout.sumpos.assign(size_t(nworkers), 0);
+  wout.c2dpos.assign(size_t(nworkers), 0);
+  for(int w=0; w<nworkers; w++) {
+    string sf = perworker_sumfile(outsum_prefix, w);
+    string cf = perworker_c2dfile(clust2det_prefix, w);
+    long ssize = file_size_bytes(sf);
+    long csize = file_size_bytes(cf);
+    wout.sumstream[w].open(sf.c_str(), std::ios::binary | std::ios::app);
+    wout.c2dstream[w].open(cf.c_str(), std::ios::binary | std::ios::app);
+    if(!wout.sumstream[w] || !wout.c2dstream[w]) {
+      cerr << "ERROR: can't open worker output files " << sf << " / " << cf << "\n";
+      return(1);
+    }
+    if(ssize<=0) {
+      wout.sumstream[w] << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+      wout.sumstream[w].flush();
+      ssize = long(string("#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n").size());
+    }
+    if(csize<=0) {
+      wout.c2dstream[w] << "#clusternum,detnum\n";
+      wout.c2dstream[w].flush();
+      csize = long(string("#clusternum,detnum\n").size());
+    }
+    wout.sumpos[w] = ssize;
+    wout.c2dpos[w] = csize;
+  }
+  wout.indexstream.open(perworker_indexfile(outsum_prefix).c_str(), std::ios::app);
+  if(!wout.indexstream) { cerr << "ERROR: can't open the streaming index file " << perworker_indexfile(outsum_prefix) << "\n"; return(1); }
+  return(0);
+}
+
+static void close_worker_files(worker_output &wout)
+{
+  for(size_t w=0; w<wout.sumstream.size(); w++) if(wout.sumstream[w].is_open()) wout.sumstream[w].close();
+  for(size_t w=0; w<wout.c2dstream.size(); w++) if(wout.c2dstream[w].is_open()) wout.c2dstream[w].close();
+  if(wout.indexstream.is_open()) wout.indexstream.close();
+}
+
+// Append one hypothesis's clusters to the calling worker's files and record the index entry.
+static int write_worker_block_hl(worker_output &wout, const vector <hlclust> &hl, const vector <longpair> &lp, long hypno)
+{
+  int w = omp_get_thread_num();
+  if(w<0 || w>=long(wout.sumstream.size())) {
+    cerr << "ERROR: worker index " << w << " is outside the " << wout.sumstream.size() << " open worker files\n";
+    return(1);
+  }
+  std::ostringstream sumblk;
+  std::ostringstream c2dblk;
+  append_clustersum_block(sumblk, hl);
+  append_clust2det_block(c2dblk, lp);
+  string sbuf = sumblk.str();
+  string cbuf = c2dblk.str();
+  long soff = wout.sumpos[w];
+  long coff = wout.c2dpos[w];
+  wout.sumstream[w].write(sbuf.data(), std::streamsize(sbuf.size()));
+  wout.c2dstream[w].write(cbuf.data(), std::streamsize(cbuf.size()));
+  wout.sumstream[w].flush();
+  wout.c2dstream[w].flush();
+  if(wout.sumstream[w].fail() || wout.c2dstream[w].fail()) {
+    cerr << "ERROR: failed writing worker output for hypothesis " << hypno << " (disk full or quota?)\n";
+    return(1);
+  }
+  wout.sumpos[w] = soff + long(sbuf.size());
+  wout.c2dpos[w] = coff + long(cbuf.size());
+  // The index is the only shared file; one short line per hypothesis.
+  #pragma omp critical(perworker_index)
+  {
+    wout.indexstream << hypno << " " << w << " " << soff << " " << long(sbuf.size()) << " " << coff << " " << long(cbuf.size()) << "\n";
+    wout.indexstream.flush();
+  }
+  if(wout.indexstream.fail()) {
+    cerr << "ERROR: failed writing the streaming index entry for hypothesis " << hypno << "\n";
+    return(1);
+  }
+  return(0);
+}
+
+static int write_worker_block(worker_output &wout, const vector <hldet> &detvec, const vector <shortclust> &clust, const vector <uint_pair> &clust2det, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, double MJDref, long hypno)
+{
+  vector <hlclust> hl;
+  vector <longpair> lp;
+  int status = lowmem_to_hlclust(detvec, clust, clust2det, heliodist, heliovel, helioacc, MJDref, hl, lp);
+  if(status!=0) return(status);
+  return(write_worker_block_hl(wout, hl, lp, hypno));
+}
+
+static int write_worker_block(worker_output &wout, const vector <hldet> &detvec, vector <hlclust> &clust, const vector <longpair> &clust2det, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, double MJDref, long hypno)
+{
+  for(long i=0; i<long(clust.size()); i++) clust[i].reference_MJD = MJDref;
+  return(write_worker_block_hl(wout, clust, clust2det, hypno));
+}
+
+// Cross-hypothesis dedup reading hypothesis blocks out of the worker files.
 template <class Clust, class Pair>
-static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const string &clust2det_prefix, const vector <hldet> &detvec, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, const HeliolincConfig &config)
+static int dedup_perworker_files(long accelnum, const string &outsum_prefix, const string &clust2det_prefix, const vector <hypblock> &blockindex, const vector <hldet> &detvec, const vector <double> &heliodist, const vector <double> &heliovel, const vector <double> &helioacc, const HeliolincConfig &config)
 {
   double t_dedup0 = omp_get_wtime();
   long total_raw_links = 0;
-  cout << "\nStarting parallel cross-hypothesis dedup over " << accelnum << " per-hyp file pairs\n";
-  auto load_hyp_files = [&](long i, vector <Clust> &clust, vector <Pair> &c2d) -> int {
-    string sf = perhyp_sumfile(outsum_prefix, i);
-    string cf = perhyp_c2dfile(clust2det_prefix, i);
+  long missing = 0;
+  int maxworker = 0;
+  vector <long> where(size_t(accelnum), -1);
+  for(long k=0; k<long(blockindex.size()); k++) {
+    where[blockindex[k].hypno] = k;
+    if(blockindex[k].worker>maxworker) maxworker = blockindex[k].worker;
+  }
+  for(long i=0; i<accelnum; i++) if(where[i]<0) missing++;
+  if(missing>0) {
+    cerr << "ERROR: " << missing << " of " << accelnum << " hypotheses have no block in the streaming index; cannot dedup\n";
+    return(1);
+  }
+  cout << "\nStarting parallel cross-hypothesis dedup over " << accelnum << " hypothesis blocks in " << (maxworker+1) << " worker file pairs\n";
+  auto load_hyp_blocks = [&](long i, vector <Clust> &clust, vector <Pair> &c2d) -> int {
+    const hypblock &b = blockindex[where[i]];
+    string sbuf;
+    string cbuf;
     vector <hlclust> hl;
     vector <longpair> lp;
-    if(read_clustersum_file(sf, hl, config.verbose)!=0 || read_longpair_file(cf, lp, config.verbose)!=0) {
-      cerr << "ERROR: cannot read per-hyp output " << sf << " / " << cf << "\n";
+    if(read_worker_block(perworker_sumfile(outsum_prefix, b.worker), b.sum_off, b.sum_len, sbuf)!=0) return(1);
+    if(read_worker_block(perworker_c2dfile(clust2det_prefix, b.worker), b.c2d_off, b.c2d_len, cbuf)!=0) return(1);
+    if(parse_block_clusters(sbuf, hl)!=0 || parse_block_pairs(cbuf, lp)!=0) {
+      cerr << "ERROR: cannot parse the streaming output block for hypothesis " << i << "\n";
       return(1);
     }
     #pragma omp atomic
@@ -63733,9 +64096,9 @@ static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const 
   };
   vector <Clust> finalclust;
   vector <Pair> final2det;
-  int status = dedup_all_hyps(accelnum, &load_hyp_files, finalclust, final2det);
+  int status = dedup_all_hyps(accelnum, &load_hyp_blocks, finalclust, final2det);
   if(status!=0) {
-    cerr << "ERROR: cross-hypothesis dedup failed; per-hyp files are kept for resume\n";
+    cerr << "ERROR: cross-hypothesis dedup failed; the worker files and index are kept for resume\n";
     return(status);
   }
   if(total_raw_links > 0) {
@@ -63748,14 +64111,15 @@ static int dedup_perhyp_files(long accelnum, const string &outsum_prefix, const 
   string c2dfile_out = clust2det_prefix + ".csv";
   cout << "Writing " << finalclust.size() << " linkages to " << sumfile_out << " and " << c2dfile_out << "\n";
   status = write_cluster_bundle(detvec, finalclust, final2det, heliodist, heliovel, helioacc, config.MJDref, sumfile_out, c2dfile_out);
-  if(status!=0) return(status); // bundle not written: per-hyp files stay for resume
+  if(status!=0) return(status); // bundle not written: worker files stay for resume
 
   long removed = 0;
-  for(long i=0; i<accelnum; i++) {
-    if(remove(perhyp_sumfile(outsum_prefix, i).c_str()) == 0) removed++;
-    if(remove(perhyp_c2dfile(clust2det_prefix, i).c_str()) == 0) removed++;
+  for(int w=0; w<=maxworker; w++) {
+    if(remove(perworker_sumfile(outsum_prefix, w).c_str()) == 0) removed++;
+    if(remove(perworker_c2dfile(clust2det_prefix, w).c_str()) == 0) removed++;
   }
-  cout << "Removed " << removed << " per-hyp intermediate files (" << accelnum << " hyp pairs) after bundle write\n";
+  if(remove(perworker_indexfile(outsum_prefix).c_str()) == 0) removed++;
+  cout << "Removed " << removed << " per-worker intermediate files after bundle write\n";
   return(0);
 }
 
@@ -63940,11 +64304,12 @@ int heliolinc_alg_omp_lowmem(const vector <hlimage> &image_log, const vector <hl
 // heliolinc_alg_omp_lowmem_streaming: memory-bounded streaming output (-streaming yes).
 // Each hypothesis writes its own output pair as soon as it is clustered, so a
 // thread holds at most one hypothesis's state vectors and clusters:
-//   {outsum_prefix}_{N}.txt  and  {clust2det_prefix}_{N}.csv
-// Files are written as .tmp and renamed, and a hypothesis whose final-named pair
-// already exists is skipped, so a killed run can be resumed with the same command.
-// If do_dedup is true, dedup_perhyp_files then writes the bundled pair and removes
-// the per-hyp files; if false, the per-hyp files are the output.
+//   {outsum_prefix}_w{W}.txt  and  {clust2det_prefix}_w{W}.csv, one pair per worker
+// Each worker appends to its own files, and {outsum_prefix}_index.txt records
+// hypno/worker/offsets for every completed hypothesis, so a killed run resumes from
+// the index with the same command and only 2*nthreads+1 files are ever created.
+// If do_dedup is true, dedup_perworker_files then writes the bundled pair and removes
+// the worker files; if false, the worker files and their index are the output.
 template <class Trk, class T2D>
 static int heliolinc_alg_omp_lowmem_streaming_impl(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <Trk> &tracklets, const vector <T2D> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
@@ -64045,16 +64410,22 @@ static int heliolinc_alg_omp_lowmem_streaming_impl(const vector <hlimage> &image
   #pragma omp parallel
   { nt = omp_get_num_threads(); }
   cout << "nthreads = " << nt << "\n";
-  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling (per-hyp streaming output)\n";
+  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling (per-worker streaming output)\n";
+
+  // Per-worker streaming output: recover anything a previous run completed, then open one
+  // pair of files per worker.  Only the small index file is shared between threads.
+  vector <hypblock> blockindex;
+  vector <char> hyp_done;
+  worker_output wout;
+  if(recover_worker_files(outsum_prefix, clust2det_prefix, accelnum, nt, blockindex, hyp_done, config.verbose)!=0) return(1);
+  if(open_worker_files(outsum_prefix, clust2det_prefix, nt, wout)!=0) return(1);
 
   #pragma omp parallel for schedule(dynamic)
   for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
     if(global_error) continue; // skip remaining work if a fatal error occurred
-    string sumfile_hyp = perhyp_sumfile(outsum_prefix, thread_accelct);
-    string c2dfile_hyp = perhyp_c2dfile(clust2det_prefix, thread_accelct);
-    if(perhyp_pair_exists(sumfile_hyp, c2dfile_hyp)) {
+    if(hyp_done[thread_accelct]) {
       #pragma omp critical
-      { cout << "Hypothesis " << thread_accelct << ": resume-skip (output exists)\n"; }
+      { cout << "Hypothesis " << thread_accelct << ": resume-skip (already in the worker files)\n"; }
       continue;
     }
 
@@ -64068,8 +64439,7 @@ static int heliolinc_alg_omp_lowmem_streaming_impl(const vector <hlimage> &image
       continue;
     }
 
-    int wstat = write_lowmem_bundle(detvec, thread_clust, thread_c2d, heliodist, heliovel, helioacc, config.MJDref, sumfile_hyp + ".tmp", c2dfile_hyp + ".tmp");
-    if(wstat==0) wstat = promote_perhyp_pair(sumfile_hyp, c2dfile_hyp);
+    int wstat = write_worker_block(wout, detvec, thread_clust, thread_c2d, heliodist, heliovel, helioacc, config.MJDref, thread_accelct);
     if(wstat!=0) {
       cerr << "ERROR: output for hypothesis " << thread_accelct << " was not written; stopping. Completed hypotheses are kept for resume.\n";
       #pragma omp atomic write
@@ -64080,13 +64450,16 @@ static int heliolinc_alg_omp_lowmem_streaming_impl(const vector <hlimage> &image
     #pragma omp critical
     {
       if(thread_status==1) cerr << "WARNING: hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
-      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_clust.size() << " linkages -> " << sumfile_hyp << "\n";
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_clust.size() << " linkages -> worker " << omp_get_thread_num() << "\n";
     }
   } // end parallel for
 
+  close_worker_files(wout);
   if(global_error) return(global_error);
-  if(!do_dedup) return(0); // Per-hyp files are the final product.
-  return(dedup_perhyp_files<shortclust, uint_pair>(accelnum, outsum_prefix, clust2det_prefix, detvec, heliodist, heliovel, helioacc, config));
+  if(!do_dedup) return(0); // The worker files and their index are the final product.
+  // Re-read the index so dedup sees this run's blocks as well as any recovered ones.
+  if(recover_worker_files(outsum_prefix, clust2det_prefix, accelnum, nt, blockindex, hyp_done, config.verbose)!=0) return(1);
+  return(dedup_perworker_files<shortclust, uint_pair>(accelnum, outsum_prefix, clust2det_prefix, blockindex, detvec, heliodist, heliovel, helioacc, config));
 }
 
 int heliolinc_alg_omp_lowmem_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
@@ -64370,11 +64743,12 @@ int heliolinc_alg_omp_rhs(const vector <hlimage> &image_log, const vector <hldet
 // heliolinc_alg_omp_lowmem_streaming.  Each hypothesis writes its own output
 // pair as soon as it is clustered, so a thread holds at most one hypothesis's
 // state vectors and clusters:
-//   {outsum_prefix}_{N}.txt  and  {clust2det_prefix}_{N}.csv
-// Files are written as .tmp and renamed, and a hypothesis whose final-named pair
-// already exists is skipped, so a killed run can be resumed with the same command.
-// If do_dedup is true, dedup_perhyp_files then writes the bundled pair and removes
-// the per-hyp files; if false, the per-hyp files are the output.
+//   {outsum_prefix}_w{W}.txt  and  {clust2det_prefix}_w{W}.csv, one pair per worker
+// Each worker appends to its own files, and {outsum_prefix}_index.txt records
+// hypno/worker/offsets for every completed hypothesis, so a killed run resumes from
+// the index with the same command and only 2*nthreads+1 files are ever created.
+// If do_dedup is true, dedup_perworker_files then writes the bundled pair and removes
+// the worker files; if false, the worker files and their index are the output.
 template <class Trk, class T2D>
 static int heliolinc_alg_omp_rhs_streaming_impl(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <Trk> &tracklets, const vector <T2D> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
 {
@@ -64468,16 +64842,22 @@ static int heliolinc_alg_omp_rhs_streaming_impl(const vector <hlimage> &image_lo
   #pragma omp parallel
   { nt = omp_get_num_threads(); }
   cout << "nthreads = " << nt << "\n";
-  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling (per-hyp streaming output)\n";
+  cout << "Processing " << accelnum << " hypotheses with dynamic scheduling (per-worker streaming output)\n";
+
+  // Per-worker streaming output: recover anything a previous run completed, then open one
+  // pair of files per worker.  Only the small index file is shared between threads.
+  vector <hypblock> blockindex;
+  vector <char> hyp_done;
+  worker_output wout;
+  if(recover_worker_files(outsum_prefix, clust2det_prefix, accelnum, nt, blockindex, hyp_done, config.verbose)!=0) return(1);
+  if(open_worker_files(outsum_prefix, clust2det_prefix, nt, wout)!=0) return(1);
 
   #pragma omp parallel for schedule(dynamic)
   for(long thread_accelct=0; thread_accelct<accelnum; thread_accelct++) {
     if(global_error) continue; // skip remaining work if a fatal error occurred
-    string sumfile_hyp = perhyp_sumfile(outsum_prefix, thread_accelct);
-    string c2dfile_hyp = perhyp_c2dfile(clust2det_prefix, thread_accelct);
-    if(perhyp_pair_exists(sumfile_hyp, c2dfile_hyp)) {
+    if(hyp_done[thread_accelct]) {
       #pragma omp critical
-      { cout << "Hypothesis " << thread_accelct << ": resume-skip (output exists)\n"; }
+      { cout << "Hypothesis " << thread_accelct << ": resume-skip (already in the worker files)\n"; }
       continue;
     }
 
@@ -64491,8 +64871,7 @@ static int heliolinc_alg_omp_rhs_streaming_impl(const vector <hlimage> &image_lo
       continue;
     }
 
-    int wstat = write_cluster_bundle(detvec, thread_clust, thread_c2d, heliodist, heliovel, helioacc, config.MJDref, sumfile_hyp + ".tmp", c2dfile_hyp + ".tmp");
-    if(wstat==0) wstat = promote_perhyp_pair(sumfile_hyp, c2dfile_hyp);
+    int wstat = write_worker_block(wout, detvec, thread_clust, thread_c2d, heliodist, heliovel, helioacc, config.MJDref, thread_accelct);
     if(wstat!=0) {
       cerr << "ERROR: output for hypothesis " << thread_accelct << " was not written; stopping. Completed hypotheses are kept for resume.\n";
       #pragma omp atomic write
@@ -64503,13 +64882,16 @@ static int heliolinc_alg_omp_rhs_streaming_impl(const vector <hlimage> &image_lo
     #pragma omp critical
     {
       if(thread_status==1) cerr << "WARNING: hypothesis " << thread_accelct << ": " << radhyp[thread_accelct].HelioRad << " " << radhyp[thread_accelct].R_dot << " " << radhyp[thread_accelct].R_dubdot << " led to\nnegative heliocentric distance or other invalid result: SKIPPING\n";
-      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_clust.size() << " linkages -> " << sumfile_hyp << "\n";
+      cout << "Hypothesis " << thread_accelct << " (" << radhyp[thread_accelct].HelioRad << " AU, " << radhyp[thread_accelct].R_dot*AU_KM/SOLARDAY << " km/sec): " << thread_clust.size() << " linkages -> worker " << omp_get_thread_num() << "\n";
     }
   } // end parallel for
 
+  close_worker_files(wout);
   if(global_error) return(global_error);
-  if(!do_dedup) return(0); // Per-hyp files are the final product.
-  return(dedup_perhyp_files<hlclust, longpair>(accelnum, outsum_prefix, clust2det_prefix, detvec, heliodist, heliovel, helioacc, config));
+  if(!do_dedup) return(0); // The worker files and their index are the final product.
+  // Re-read the index so dedup sees this run's blocks as well as any recovered ones.
+  if(recover_worker_files(outsum_prefix, clust2det_prefix, accelnum, nt, blockindex, hyp_done, config.verbose)!=0) return(1);
+  return(dedup_perworker_files<hlclust, longpair>(accelnum, outsum_prefix, clust2det_prefix, blockindex, detvec, heliodist, heliovel, helioacc, config));
 }
 
 int heliolinc_alg_omp_rhs_streaming(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, const string &outsum_prefix, const string &clust2det_prefix, bool do_dedup)
